@@ -129,8 +129,63 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 
 	written := 0
 	rowsSinceFlush := 0
+	currentRow := uint64(0)
+	currentBlockIdx := 0
+
+	// Find which block we started in (if we seeked)
+	if index != nil && len(index.Blocks) > 0 {
+		for i := range index.Blocks {
+			if !pruneBlocks[i] {
+				currentBlockIdx = i
+				currentRow = index.Blocks[i].StartRow
+				break
+			}
+		}
+	}
 
 	for {
+		// Check if we've entered a pruned block and should skip ahead
+		if index != nil && currentBlockIdx < len(index.Blocks) {
+			block := &index.Blocks[currentBlockIdx]
+
+			// If current row is beyond this block, move to next block
+			if currentRow >= block.EndRow {
+				currentBlockIdx++
+				if currentBlockIdx < len(index.Blocks) {
+					block = &index.Blocks[currentBlockIdx]
+				}
+			}
+
+			// If we're in a pruned block, seek to next unpruned block
+			if currentBlockIdx < len(index.Blocks) && pruneBlocks[currentBlockIdx] {
+				// Find next unpruned block
+				nextBlockIdx := currentBlockIdx + 1
+				for nextBlockIdx < len(index.Blocks) && pruneBlocks[nextBlockIdx] {
+					nextBlockIdx++
+				}
+
+				if nextBlockIdx >= len(index.Blocks) {
+					break // No more unpruned blocks
+				}
+
+				nextBlock := &index.Blocks[nextBlockIdx]
+				if _, err := file.Seek(int64(nextBlock.StartOffset), io.SeekStart); err == nil {
+					// Successfully seeked, recreate buffered reader
+					bufferedFile = bufio.NewReaderSize(file, ioBufferSize)
+					reader = csv.NewReader(bufferedFile)
+					reader.ReuseRecord = true
+					reader.FieldsPerRecord = -1
+					currentBlockIdx = nextBlockIdx
+					currentRow = nextBlock.StartRow
+
+					if os.Getenv("SIDX_DEBUG") == "1" {
+						fmt.Fprintf(os.Stderr, "[sidx] Skipped pruned blocks, seeked to block %d offset %d\n",
+							nextBlockIdx, nextBlock.StartOffset)
+					}
+				}
+			}
+		}
+
 		record, err := reader.Read()
 		if err == io.EOF {
 			break
@@ -138,6 +193,8 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("read row: %w", err)
 		}
+
+		currentRow++
 
 		if predicate != nil {
 			value := ""

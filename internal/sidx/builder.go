@@ -1,8 +1,8 @@
 package sidx
 
 import (
-	"bytes"
 	"bufio"
+	"bytes"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -33,13 +33,14 @@ type Builder struct {
 	blocks     []BlockMeta
 
 	// Current block state
-	blockStartRow    uint64
-	blockStartOffset uint64
-	lastRowEndOffset uint64
-	columnMins       []string
-	columnMaxs       []string
-	columnTypes      []ColumnType
-	headers          []string
+	blockStartRow     uint64
+	blockStartOffset  uint64
+	lastRowEndOffset  uint64
+	columnMins        []string
+	columnMaxs        []string
+	columnEmptyCounts []uint32
+	columnTypes       []ColumnType
+	headers           []string
 }
 
 func NewBuilder(blockSize uint32) *Builder {
@@ -102,6 +103,7 @@ func (b *Builder) BuildFromFile(csvPath string) (*Index, error) {
 	numCols := len(b.headers)
 	b.columnMins = make([]string, numCols)
 	b.columnMaxs = make([]string, numCols)
+	b.columnEmptyCounts = make([]uint32, numCols)
 	b.columnTypes = make([]ColumnType, numCols)
 
 	const sampleSize = 256
@@ -148,6 +150,7 @@ func (b *Builder) BuildFromFile(csvPath string) (*Index, error) {
 		for i := 0; i < numCols && i < len(record); i++ {
 			value := record[i]
 			if value == "" {
+				b.columnEmptyCounts[i]++
 				continue
 			}
 
@@ -211,11 +214,24 @@ func (b *Builder) flushBlock() {
 		return
 	}
 
+	// Validate block invariants
+	if b.currentRow <= b.blockStartRow {
+		panic(fmt.Sprintf("invalid block: EndRow (%d) <= StartRow (%d)", b.currentRow, b.blockStartRow))
+	}
+	if b.lastRowEndOffset < b.blockStartOffset {
+		panic(fmt.Sprintf("invalid block: EndOffset (%d) < StartOffset (%d)", b.lastRowEndOffset, b.blockStartOffset))
+	}
+
 	cols := make([]ColumnStats, len(b.headers))
 	for i := range b.headers {
+		// Validate min <= max when both present
+		if b.columnMins[i] != "" && b.columnMaxs[i] != "" && b.columnMins[i] > b.columnMaxs[i] {
+			panic(fmt.Sprintf("invalid block: column %q has min > max (%q > %q)", b.headers[i], b.columnMins[i], b.columnMaxs[i]))
+		}
 		cols[i] = ColumnStats{
-			Min: b.columnMins[i],
-			Max: b.columnMaxs[i],
+			Min:        b.columnMins[i],
+			Max:        b.columnMaxs[i],
+			EmptyCount: b.columnEmptyCounts[i],
 		}
 	}
 
@@ -233,6 +249,7 @@ func (b *Builder) flushBlock() {
 	for i := range b.columnMins {
 		b.columnMins[i] = ""
 		b.columnMaxs[i] = ""
+		b.columnEmptyCounts[i] = 0
 	}
 }
 
@@ -260,9 +277,18 @@ func CanPruneBlock(index *Index, block *BlockMeta, colName, operator, value stri
 	min := stats.Min
 	max := stats.Max
 
-	// Empty stats mean we can't prune safely
+	// If stats are empty but we have non-empty count info, check if block is all-empty
 	if min == "" && max == "" {
-		return false
+		// If EmptyCount equals block size, all values are empty
+		blockSize := block.EndRow - block.StartRow
+		// Only use EmptyCount if it's meaningful (blockSize > 0 and EmptyCount > 0)
+		if blockSize > 0 && stats.EmptyCount > 0 && stats.EmptyCount == uint32(blockSize) {
+			// All empty: can prune for any operator except != empty
+			if operator == "=" && value != "" {
+				return true // Looking for non-empty value in all-empty column
+			}
+		}
+		return false // Can't prune safely otherwise
 	}
 
 	// Use type-aware comparison
@@ -326,6 +352,38 @@ func ValidateIndex(index *Index, csvPath string) error {
 
 	if stat.ModTime().UnixNano() != index.Header.FileMtime {
 		return fmt.Errorf("file modified since index built")
+	}
+
+	// Validate that CSV header matches index columns (only if columns are defined)
+	if len(index.Header.Columns) > 0 {
+		f, err := os.Open(csvPath)
+		if err != nil {
+			return fmt.Errorf("open CSV for header check: %w", err)
+		}
+		defer f.Close()
+
+		reader := bufio.NewReader(f)
+		headerLine, err := reader.ReadBytes('\n')
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("read CSV header: %w", err)
+		}
+
+		headerRecord, err := parseCSVLine(bytes.TrimRight(headerLine, "\r\n"))
+		if err != nil {
+			return fmt.Errorf("parse CSV header: %w", err)
+		}
+
+		if len(headerRecord) != len(index.Header.Columns) {
+			return fmt.Errorf("column count mismatch: CSV has %d columns, index has %d",
+				len(headerRecord), len(index.Header.Columns))
+		}
+
+		for i, csvCol := range headerRecord {
+			if strings.ToLower(strings.TrimSpace(csvCol)) != strings.ToLower(index.Header.Columns[i].Name) {
+				return fmt.Errorf("column %d mismatch: CSV has %q, index has %q",
+					i, csvCol, index.Header.Columns[i].Name)
+			}
+		}
 	}
 
 	return nil

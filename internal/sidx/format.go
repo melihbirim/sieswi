@@ -33,7 +33,7 @@ import (
 
 const (
 	Magic      = "SIDX"
-	Version    = 2     // Bumped for format changes
+	Version    = 3     // Bumped to add EmptyCount to ColumnStats
 	BlockSize  = 65536 // 64K rows per block
 	HeaderSize = 32    // Base size without column dictionary
 )
@@ -61,8 +61,9 @@ type Header struct {
 }
 
 type ColumnStats struct {
-	Min string // String representation, compared per column type
-	Max string
+	Min        string // String representation, compared per column type
+	Max        string
+	EmptyCount uint32 // Number of empty/null values in this column for this block
 }
 
 type BlockMeta struct {
@@ -145,6 +146,11 @@ func WriteIndex(w io.Writer, idx *Index) error {
 				return err
 			}
 			if _, err := w.Write([]byte(col.Max)); err != nil {
+				return err
+			}
+
+			// Empty count
+			if err := binary.Write(w, binary.LittleEndian, col.EmptyCount); err != nil {
 				return err
 			}
 		}
@@ -250,6 +256,13 @@ func ReadIndex(r io.Reader) (*Index, error) {
 				return nil, err
 			}
 			col.Max = string(maxBuf)
+
+			// Read empty count (version 3+)
+			if idx.Header.Version >= 3 {
+				if err := binary.Read(r, binary.LittleEndian, &col.EmptyCount); err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 
