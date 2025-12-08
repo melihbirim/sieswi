@@ -304,4 +304,4 @@ SIDX_DEBUG=1 sieswi "SELECT * FROM 'large.csv'"
 - Run `sieswi --version` to check your version
 - See [README.md](../README.md) for SQL support
 - See [PARALLEL_PROCESSING.md](../PARALLEL_PROCESSING.md) for performance details
-- Report issues at https://github.com/sieswi/sieswi/issues
+- Report issues at https://github.com/melihbirim/sieswi/issues

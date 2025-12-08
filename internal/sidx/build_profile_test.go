@@ -5,7 +5,7 @@ import (
 	"runtime/pprof"
 	"testing"
 
-	"github.com/sieswi/sieswi/internal/sidx"
+	"github.com/melihbirim/sieswi/internal/sidx"
 )
 
 // TestBuildProfileLong profiles SIDX index building on a 10GB CSV file.

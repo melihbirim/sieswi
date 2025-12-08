@@ -146,7 +146,7 @@ make release
 
 ### Support
 
-- GitHub Issues: https://github.com/sieswi/sieswi/issues
+- GitHub Issues: https://github.com/melihbirim/sieswi/issues
 - Documentation: See README.md and docs/
 - Performance: See PARALLEL_PROCESSING.md
 

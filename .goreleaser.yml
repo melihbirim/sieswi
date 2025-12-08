@@ -55,9 +55,9 @@ changelog:
 brews:
   - name: sieswi
     repository:
-      owner: sieswi
+      owner: melihbirim
       name: homebrew-tap
-    homepage: https://github.com/sieswi/sieswi
+    homepage: https://github.com/melihbirim/sieswi
     description: "Blazing-fast SQL queries on CSV files with parallel processing"
     license: MIT
     install: |

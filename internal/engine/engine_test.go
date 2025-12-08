@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sieswi/sieswi/internal/sqlparser"
+	"github.com/melihbirim/sieswi/internal/sqlparser"
 )
 
 func writeTempCSV(t *testing.T, content string) string {

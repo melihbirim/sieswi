@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sieswi/sieswi/internal/engine"
-	"github.com/sieswi/sieswi/internal/sidx"
-	"github.com/sieswi/sieswi/internal/sqlparser"
+	"github.com/melihbirim/sieswi/internal/engine"
+	"github.com/melihbirim/sieswi/internal/sidx"
+	"github.com/melihbirim/sieswi/internal/sqlparser"
 )
 
 // Benchmark control: DuckDB results on 1M row CSV (77MB)

@@ -14,7 +14,7 @@ brew install sieswi
 
 ```bash
 # Download latest release
-curl -L https://github.com/sieswi/sieswi/releases/latest/download/sieswi_$(uname -s)_$(uname -m).tar.gz | tar xz
+curl -L https://github.com/melihbirim/sieswi/releases/latest/download/sieswi_$(uname -s)_$(uname -m).tar.gz | tar xz
 sudo mv sieswi /usr/local/bin/
 ```
 
@@ -22,7 +22,7 @@ sudo mv sieswi /usr/local/bin/
 
 ```powershell
 # Download from releases page
-Invoke-WebRequest -Uri "https://github.com/sieswi/sieswi/releases/latest/download/sieswi_Windows_x86_64.zip" -OutFile "sieswi.zip"
+Invoke-WebRequest -Uri "https://github.com/melihbirim/sieswi/releases/latest/download/sieswi_Windows_x86_64.zip" -OutFile "sieswi.zip"
 Expand-Archive sieswi.zip
 Move-Item sieswi\sieswi.exe C:\Windows\System32\
 ```
@@ -44,7 +44,7 @@ go install github.com/melihbirim/sieswi/cmd/sieswi@latest
 
 ```bash
 # Clone repository
-git clone https://github.com/sieswi/sieswi.git
+git clone https://github.com/melihbirim/sieswi.git
 cd sieswi
 
 # Build with Make
@@ -141,7 +141,7 @@ go version  # Should be 1.22+
 
 # Clear Go cache
 go clean -modcache
-go install github.com/sieswi/sieswi/cmd/sieswi@latest
+go install github.com/melihbirim/sieswi/cmd/sieswi@latest
 ```
 
 ## Next Steps

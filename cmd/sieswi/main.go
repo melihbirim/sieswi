@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sieswi/sieswi/internal/engine"
-	"github.com/sieswi/sieswi/internal/sidx"
-	"github.com/sieswi/sieswi/internal/sqlparser"
+	"github.com/melihbirim/sieswi/internal/engine"
+	"github.com/melihbirim/sieswi/internal/sidx"
+	"github.com/melihbirim/sieswi/internal/sqlparser"
 )
 
 var (

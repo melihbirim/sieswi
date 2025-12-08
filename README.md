@@ -177,4 +177,4 @@ MIT
 
 ---
 
-**Built with ❤️ in Go** | [Report Bug](https://github.com/sieswi/sieswi/issues) | [Benchmark Methodology](benchmarks/STRATEGY.md)
+**Built with ❤️ in Go** | [Report Bug](https://github.com/melihbirim/sieswi/issues) | [Benchmark Methodology](benchmarks/STRATEGY.md)

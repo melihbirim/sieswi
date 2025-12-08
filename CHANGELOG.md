@@ -67,6 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 25x less memory usage
 - 50x smaller binary size
 
-[Unreleased]: https://github.com/sieswi/sieswi/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/sieswi/sieswi/releases/tag/v1.0.0
-[0.1.0]: https://github.com/sieswi/sieswi/releases/tag/v0.1.0
+[Unreleased]: https://github.com/melihbirim/sieswi/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/melihbirim/sieswi/releases/tag/v1.0.0
+[0.1.0]: https://github.com/melihbirim/sieswi/releases/tag/v0.1.0

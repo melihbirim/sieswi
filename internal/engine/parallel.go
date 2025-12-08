@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sieswi/sieswi/internal/sqlparser"
+	"github.com/melihbirim/sieswi/internal/sqlparser"
 )
 
 var errSkipParallel = errors.New("parallel processing skipped")
