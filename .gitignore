@@ -1,0 +1,47 @@
+# Binaries
+/sieswi
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated files
+fixtures/*.sidx
+fixtures/*.csv
+
+# Build artifacts
+dist/
+build/
+bin/
+
+# Internal docs and planning
+PLAN.md
+NEXT_STEPS.md
+SIDX_IMPROVEMENTS.md
+benchmarks/results/
+benchmarks/SIDX_RESULTS.md
+benchmarks/BENCHMARK_RESULTS.md
+
+# Go cache
+.gocache/
