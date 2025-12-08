@@ -52,15 +52,16 @@ changelog:
       - '^chore:'
       - typo
 
-brews:
-  - name: sieswi
-    repository:
-      owner: melihbirim
-      name: homebrew-tap
-    homepage: https://github.com/melihbirim/sieswi
-    description: "Blazing-fast SQL queries on CSV files with parallel processing"
-    license: MIT
-    install: |
-      bin.install "sieswi"
-    test: |
-      system "#{bin}/sieswi", "--version"
+# Homebrew tap - uncomment when homebrew-tap repository is created
+# brews:
+#   - name: sieswi
+#     repository:
+#       owner: melihbirim
+#       name: homebrew-tap
+#     homepage: https://github.com/melihbirim/sieswi
+#     description: "Blazing-fast SQL queries on CSV files with parallel processing"
+#     license: MIT
+#     install: |
+#       bin.install "sieswi"
+#     test: |
+#       system "#{bin}/sieswi", "--version"
