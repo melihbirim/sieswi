@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -15,8 +16,19 @@ import (
 
 func main() {
 	// Check for index command
-	if len(os.Args) >= 3 && os.Args[1] == "index" {
-		if err := buildIndex(os.Args[2]); err != nil {
+	if len(os.Args) >= 2 && os.Args[1] == "index" {
+		// Parse flags for index command
+		indexFlags := flag.NewFlagSet("index", flag.ExitOnError)
+		skipTypeInference := indexFlags.Bool("skip-type-inference", false, "Skip type inference, assume all columns are strings (faster)")
+		indexFlags.Parse(os.Args[2:])
+
+		if indexFlags.NArg() < 1 {
+			fmt.Fprintln(os.Stderr, "usage: sieswi index [--skip-type-inference] <csvfile>")
+			os.Exit(1)
+		}
+
+		csvPath := indexFlags.Arg(0)
+		if err := buildIndex(csvPath, *skipTypeInference); err != nil {
 			fmt.Fprintln(os.Stderr, "index error:", err)
 			os.Exit(1)
 		}
@@ -44,10 +56,11 @@ func main() {
 	}
 }
 
-func buildIndex(csvPath string) error {
+func buildIndex(csvPath string, skipTypeInference bool) error {
 	fmt.Fprintf(os.Stderr, "Building index for %s...\n", csvPath)
 
 	builder := sidx.NewBuilder(sidx.BlockSize)
+	builder.SetSkipTypeInference(skipTypeInference)
 	index, err := builder.BuildFromFile(csvPath)
 	if err != nil {
 		return fmt.Errorf("build index: %w", err)

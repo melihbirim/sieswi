@@ -41,6 +41,16 @@ type Builder struct {
 	columnEmptyCounts []uint32
 	columnTypes       []ColumnType
 	headers           []string
+
+	// Type inference state (computed during first block)
+	typeInferenceActive bool
+	skipTypeInference   bool
+	numericCounts       []int
+	nonEmptyCounts      []int
+
+	// Reusable CSV parsing buffer
+	csvReader *csv.Reader
+	csvBuffer *bytes.Reader
 }
 
 func NewBuilder(blockSize uint32) *Builder {
@@ -49,7 +59,25 @@ func NewBuilder(blockSize uint32) *Builder {
 	}
 }
 
-// inferColumnType attempts to detect if a column is numeric
+// SetSkipTypeInference configures whether to skip type detection
+// When true, all columns are assumed to be strings (faster indexing)
+func (b *Builder) SetSkipTypeInference(skip bool) {
+	b.skipTypeInference = skip
+}
+
+// finalizeTypeInference determines column types based on collected statistics
+func (b *Builder) finalizeTypeInference() {
+	for i := range b.columnTypes {
+		// If >80% of non-empty values are numeric, treat as numeric
+		if b.nonEmptyCounts[i] > 0 && b.numericCounts[i]*5 >= b.nonEmptyCounts[i]*4 {
+			b.columnTypes[i] = ColumnTypeNumeric
+		} else {
+			b.columnTypes[i] = ColumnTypeString
+		}
+	}
+}
+
+// inferColumnType is a helper for testing type inference logic
 func inferColumnType(values []string) ColumnType {
 	numericCount := 0
 	nonEmptyCount := 0
@@ -84,7 +112,7 @@ func (b *Builder) BuildFromFile(csvPath string) (*Index, error) {
 	fileSize := stat.Size()
 	fileMtime := stat.ModTime().UnixNano()
 
-	reader := bufio.NewReaderSize(f, 512*1024)
+	reader := bufio.NewReaderSize(f, 2*1024*1024) // 2MB buffer for better throughput
 	offset := int64(0)
 
 	// Read header line
@@ -106,11 +134,17 @@ func (b *Builder) BuildFromFile(csvPath string) (*Index, error) {
 	b.columnEmptyCounts = make([]uint32, numCols)
 	b.columnTypes = make([]ColumnType, numCols)
 
-	const sampleSize = 256
-	samples := make([][]string, numCols)
-	for i := range samples {
-		samples[i] = make([]string, 0, sampleSize)
+	// Type inference during first block (unless skipped)
+	if !b.skipTypeInference {
+		b.typeInferenceActive = true
+		b.numericCounts = make([]int, numCols)
+		b.nonEmptyCounts = make([]int, numCols)
 	}
+
+	// Initialize reusable CSV parser
+	b.csvBuffer = bytes.NewReader(nil)
+	b.csvReader = csv.NewReader(b.csvBuffer)
+	b.csvReader.FieldsPerRecord = -1
 
 	offset += int64(len(headerLine))
 	b.blockStartRow = 0
@@ -138,7 +172,9 @@ func (b *Builder) BuildFromFile(csvPath string) (*Index, error) {
 			continue
 		}
 
-		record, perr := parseCSVLine(trimmed)
+		// Reuse CSV reader to avoid allocations
+		b.csvBuffer.Reset(trimmed)
+		record, perr := b.csvReader.Read()
 		if perr != nil {
 			return nil, fmt.Errorf("parse row %d: %w", b.currentRow, perr)
 		}
@@ -160,8 +196,13 @@ func (b *Builder) BuildFromFile(csvPath string) (*Index, error) {
 			if b.columnMaxs[i] == "" || value > b.columnMaxs[i] {
 				b.columnMaxs[i] = value
 			}
-			if len(samples[i]) < sampleSize {
-				samples[i] = append(samples[i], value)
+
+			// Type inference during first block
+			if b.typeInferenceActive {
+				b.nonEmptyCounts[i]++
+				if _, err := strconv.ParseFloat(value, 64); err == nil {
+					b.numericCounts[i]++
+				}
 			}
 		}
 
@@ -173,6 +214,12 @@ func (b *Builder) BuildFromFile(csvPath string) (*Index, error) {
 		if rowInBlock >= b.blockSize {
 			b.flushBlock()
 			rowInBlock = 0
+
+			// Type inference complete after first block
+			if b.typeInferenceActive {
+				b.finalizeTypeInference()
+				b.typeInferenceActive = false
+			}
 		}
 
 		if err == io.EOF {
@@ -184,8 +231,15 @@ func (b *Builder) BuildFromFile(csvPath string) (*Index, error) {
 		b.flushBlock()
 	}
 
-	for i := 0; i < numCols; i++ {
-		b.columnTypes[i] = inferColumnType(samples[i])
+	// Finalize type inference if we never hit a full block
+	if b.typeInferenceActive {
+		b.finalizeTypeInference()
+		b.typeInferenceActive = false
+	} else if b.skipTypeInference {
+		// Set all columns to string type
+		for i := range b.columnTypes {
+			b.columnTypes[i] = ColumnTypeString
+		}
 	}
 
 	columns := make([]ColumnInfo, numCols)
