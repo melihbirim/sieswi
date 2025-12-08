@@ -9,6 +9,7 @@ linters:
     - govet
     - staticcheck
     - ineffassign
+    - unused
   disable:
     - errcheck  # Too many false positives on defer statements
 
