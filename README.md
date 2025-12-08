@@ -30,13 +30,13 @@ sieswi "SELECT price_minor, country FROM 'data.csv' WHERE country = 'US' LIMIT 1
 ### Install
 
 ```bash
-go install github.com/sieswi/sieswi/cmd/sieswi@latest
+go install github.com/melihbirim/sieswi/cmd/sieswi@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/sieswi/sieswi
+git clone https://github.com/melihbirim/sieswi
 cd sieswi
 go build -o sieswi ./cmd/sieswi
 ```

@@ -30,7 +30,7 @@ Move-Item sieswi\sieswi.exe C:\Windows\System32\
 ### Go Install
 
 ```bash
-go install github.com/sieswi/sieswi/cmd/sieswi@latest
+go install github.com/melihbirim/sieswi/cmd/sieswi@latest
 ```
 
 ## Build from Source
