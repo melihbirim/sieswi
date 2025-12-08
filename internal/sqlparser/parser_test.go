@@ -20,8 +20,13 @@ func TestParseBasicQuery(t *testing.T) {
 		t.Fatalf("unexpected limit: %d", q.Limit)
 	}
 
-	if q.Predicate == nil {
-		t.Fatalf("expected predicate")
+	if q.Where == nil {
+		t.Fatalf("expected WHERE expression")
+	}
+
+	// Check it's a simple comparison
+	if _, ok := q.Where.(Comparison); !ok {
+		t.Fatalf("expected WHERE to be a Comparison, got %T", q.Where)
 	}
 }
 

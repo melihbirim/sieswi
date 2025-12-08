@@ -14,7 +14,7 @@ import (
 
 const (
 	ioBufferSize       = 256 * 1024 // 256KB keeps syscalls low without huge RSS.
-	defaultFlushEveryN = 128        // Flush every N rows to keep streaming latency low.
+	defaultFlushEveryN = 8192       // Flush every N rows - higher for bulk throughput.
 )
 
 // Execute streams query results to the provided writer.
@@ -34,6 +34,15 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 		indexFile.Close()
 	}
 
+	// Try parallel execution for large files without index
+	if index == nil && os.Getenv("SIDX_NO_PARALLEL") != "1" {
+		if err := ParallelExecute(query, out); err == nil {
+			return nil // Parallel execution succeeded
+		} else if os.Getenv("SIDX_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "[parallel] Failed or skipped: %v, falling back to sequential\n", err)
+		}
+	}
+
 	file, err := os.Open(query.FilePath)
 	if err != nil {
 		return fmt.Errorf("open CSV: %w", err)
@@ -42,28 +51,40 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 
 	// Note: We need file handle for seeking, can't use buffered reader until after seeks
 	var reader *csv.Reader
+	var fastReader *FastCSVReader
 	var bufferedFile *bufio.Reader
+	useFastPath := (index == nil) // Use fast parser when no index (no seeking needed)
 
 	if index != nil {
 		// Use unbuffered for seeking, will add buffer after seeks
 		reader = csv.NewReader(file)
+		reader.ReuseRecord = true
+		reader.FieldsPerRecord = -1
 	} else {
-		// No index, use buffered from start
-		bufferedFile = bufio.NewReaderSize(file, ioBufferSize)
-		reader = csv.NewReader(bufferedFile)
+		// No index, use fast CSV parser (3-5x faster than encoding/csv)
+		fastReader = NewFastCSVReader(file)
 	}
 
-	reader.ReuseRecord = true
-	reader.FieldsPerRecord = -1
-
-	header, err := reader.Read()
+	var headerRecord []string
+	if useFastPath {
+		headerRecord, err = fastReader.Read()
+	} else {
+		headerRecord, err = reader.Read()
+	}
 	if err != nil {
 		return fmt.Errorf("read header: %w", err)
 	}
+	// IMPORTANT: Copy header because ReuseRecord=true will overwrite the slice
+	header := make([]string, len(headerRecord))
+	copy(header, headerRecord)
 
+	// Pre-normalize headers once for fast WHERE evaluation
+	normalizedHeaders := make([]string, len(header))
 	normalisedIndex := make(map[string]int, len(header))
 	for idx, name := range header {
-		normalisedIndex[strings.ToLower(strings.TrimSpace(name))] = idx
+		normalized := strings.ToLower(strings.TrimSpace(name))
+		normalizedHeaders[idx] = normalized
+		normalisedIndex[normalized] = idx
 	}
 
 	selectedIdxs, outputHeader, err := resolveProjection(query, header, normalisedIndex)
@@ -71,25 +92,21 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 		return err
 	}
 
-	var predicateIdx int
-	var predicate *sqlparser.Predicate
-	if query.Predicate != nil {
-		predicate = query.Predicate
-		idx, ok := normalisedIndex[strings.ToLower(predicate.Column)]
-		if !ok {
-			return fmt.Errorf("column %q not found in CSV header", predicate.Column)
+	// Validate all columns referenced in WHERE clause exist
+	if query.Where != nil {
+		if err := validateWhereColumns(query.Where, normalisedIndex); err != nil {
+			return err
 		}
-		predicateIdx = idx
 	}
 
 	// Determine which blocks can be pruned and seek to first non-pruned block
 	var pruneBlocks map[int]bool
-	if index != nil && predicate != nil {
+	if index != nil && query.Where != nil {
 		pruneBlocks = make(map[int]bool)
 		prunedCount := 0
 		for i := range index.Blocks {
 			block := &index.Blocks[i]
-			if sidx.CanPruneBlock(index, block, predicate.Column, predicate.Operator, predicate.Value) {
+			if canPruneBlockExpr(index, block, query.Where) {
 				pruneBlocks[i] = true
 				prunedCount++
 			}
@@ -109,6 +126,7 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 					reader = csv.NewReader(bufferedFile)
 					reader.ReuseRecord = true
 					reader.FieldsPerRecord = -1
+					useFastPath = false // Disable fast path after seeking
 					if os.Getenv("SIDX_DEBUG") == "1" {
 						fmt.Fprintf(os.Stderr, "[sidx] Seeked to block %d offset %d\n", i, block.StartOffset)
 					}
@@ -143,6 +161,12 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 		}
 	}
 
+	// Pre-allocate rowMap for WHERE evaluation to avoid repeated allocations
+	var rowMap map[string]string
+	if query.Where != nil {
+		rowMap = make(map[string]string, len(header))
+	}
+
 	for {
 		// Check if we've entered a pruned block and should skip ahead
 		if index != nil && currentBlockIdx < len(index.Blocks) {
@@ -175,6 +199,7 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 					reader = csv.NewReader(bufferedFile)
 					reader.ReuseRecord = true
 					reader.FieldsPerRecord = -1
+					useFastPath = false // Disable fast path after seeking
 					currentBlockIdx = nextBlockIdx
 					currentRow = nextBlock.StartRow
 
@@ -186,7 +211,12 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 			}
 		}
 
-		record, err := reader.Read()
+		var record []string
+		if useFastPath {
+			record, err = fastReader.Read()
+		} else {
+			record, err = reader.Read()
+		}
 		if err == io.EOF {
 			break
 		}
@@ -196,12 +226,18 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 
 		currentRow++
 
-		if predicate != nil {
-			value := ""
-			if predicateIdx < len(record) {
-				value = record[predicateIdx]
+		// Evaluate WHERE clause if present
+		if query.Where != nil {
+			// Populate rowMap with pre-normalized headers (reuses map allocation)
+			for k := range rowMap {
+				delete(rowMap, k) // Clear previous row's data
 			}
-			if !predicate.Compare(value) {
+			for i := range normalizedHeaders {
+				if i < len(record) {
+					rowMap[normalizedHeaders[i]] = record[i]
+				}
+			}
+			if !sqlparser.EvaluateNormalized(query.Where, rowMap) {
 				continue
 			}
 		}
@@ -267,4 +303,45 @@ func project(record []string, columns []int) []string {
 		}
 	}
 	return projected
+}
+
+// validateWhereColumns checks that all columns in expression exist
+func validateWhereColumns(expr sqlparser.Expression, index map[string]int) error {
+	switch e := expr.(type) {
+	case sqlparser.BinaryExpr:
+		if err := validateWhereColumns(e.Left, index); err != nil {
+			return err
+		}
+		return validateWhereColumns(e.Right, index)
+	case sqlparser.UnaryExpr:
+		return validateWhereColumns(e.Expr, index)
+	case sqlparser.Comparison:
+		_, ok := index[strings.ToLower(e.Column)]
+		if !ok {
+			return fmt.Errorf("column %q not found in CSV header", e.Column)
+		}
+		return nil
+	}
+	return nil
+}
+
+// canPruneBlockExpr determines if a block can be pruned based on expression
+func canPruneBlockExpr(index *sidx.Index, block *sidx.BlockMeta, expr sqlparser.Expression) bool {
+	switch e := expr.(type) {
+	case sqlparser.BinaryExpr:
+		if e.Operator == "AND" {
+			// Can prune if either side allows pruning
+			return canPruneBlockExpr(index, block, e.Left) || canPruneBlockExpr(index, block, e.Right)
+		} else if e.Operator == "OR" {
+			// Can only prune if BOTH sides allow pruning
+			return canPruneBlockExpr(index, block, e.Left) && canPruneBlockExpr(index, block, e.Right)
+		}
+		return false
+	case sqlparser.UnaryExpr:
+		// NOT: conservative, don't prune
+		return false
+	case sqlparser.Comparison:
+		return sidx.CanPruneBlock(index, block, e.Column, e.Operator, e.Value)
+	}
+	return false
 }

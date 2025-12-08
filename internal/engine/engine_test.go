@@ -46,7 +46,7 @@ func TestExecuteRespectsPredicateAndLimit(t *testing.T) {
 	q := sqlparser.Query{
 		AllColumns: true,
 		FilePath:   csvPath,
-		Predicate: &sqlparser.Predicate{
+		Where: sqlparser.Comparison{
 			Column:       "amount",
 			Operator:     ">",
 			Value:        "10",
@@ -93,7 +93,7 @@ func TestExecuteZeroMatches(t *testing.T) {
 	q := sqlparser.Query{
 		AllColumns: true,
 		FilePath:   csvPath,
-		Predicate: &sqlparser.Predicate{
+		Where: sqlparser.Comparison{
 			Column:   "name",
 			Operator: "=",
 			Value:    "Charlie",
@@ -118,7 +118,7 @@ func TestExecuteMissingColumn(t *testing.T) {
 	q := sqlparser.Query{
 		AllColumns: true,
 		FilePath:   csvPath,
-		Predicate: &sqlparser.Predicate{
+		Where: sqlparser.Comparison{
 			Column:   "city",
 			Operator: "=",
 			Value:    "NYC",
@@ -158,7 +158,7 @@ func TestExecuteAllOperators(t *testing.T) {
 			q := sqlparser.Query{
 				AllColumns: true,
 				FilePath:   csvPath,
-				Predicate: &sqlparser.Predicate{
+				Where: sqlparser.Comparison{
 					Column:       "value",
 					Operator:     tt.operator,
 					Value:        "",
@@ -218,7 +218,7 @@ func TestExecuteStringComparisons(t *testing.T) {
 			q := sqlparser.Query{
 				AllColumns: true,
 				FilePath:   csvPath,
-				Predicate: &sqlparser.Predicate{
+				Where: sqlparser.Comparison{
 					Column:    "status",
 					Operator:  tt.operator,
 					Value:     tt.value,
