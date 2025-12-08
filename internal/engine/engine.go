@@ -49,12 +49,12 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 
 	// Check if reading from stdin
 	isStdin := query.FilePath == "-" || query.FilePath == "stdin"
-	
+
 	if isStdin {
 		// Stdin: cannot use parallel, index, or seeking - direct sequential stream
 		return executeFromStdin(query, out)
 	}
-	
+
 	// Try parallel execution for large files without index
 	// ParallelExecute returns nil if it should be skipped (file too small, small LIMIT, etc.)
 	// It returns a real error only if parallel processing failed
@@ -434,7 +434,7 @@ func executeFromStdin(query sqlparser.Query, out io.Writer) error {
 					rowMap[col] = record[idx]
 				}
 			}
-			
+
 			if !sqlparser.Evaluate(query.Where, rowMap) {
 				continue
 			}
