@@ -14,7 +14,19 @@ import (
 	"github.com/sieswi/sieswi/internal/sqlparser"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
+	// Check for version flag
+	if len(os.Args) >= 2 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("sieswi %s (commit: %s, built: %s)\n", version, commit, date)
+		os.Exit(0)
+	}
+
 	// Check for index command
 	if len(os.Args) >= 2 && os.Args[1] == "index" {
 		// Parse flags for index command

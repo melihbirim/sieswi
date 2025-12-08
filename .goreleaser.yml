@@ -1,0 +1,66 @@
+# GoReleaser configuration for sieswi
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: sieswi
+    main: ./cmd/sieswi
+    binary: sieswi
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: sieswi
+    format: tar.gz
+    name_template: "sieswi_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - PARALLEL_PROCESSING.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - typo
+
+brews:
+  - name: sieswi
+    repository:
+      owner: sieswi
+      name: homebrew-tap
+    homepage: https://github.com/sieswi/sieswi
+    description: "Blazing-fast SQL queries on CSV files with parallel processing"
+    license: MIT
+    install: |
+      bin.install "sieswi"
+    test: |
+      system "#{bin}/sieswi", "--version"
