@@ -12,13 +12,14 @@ sieswi "SELECT price_minor, country FROM 'data.csv' WHERE country = 'US' LIMIT 1
 
 ### Performance vs DuckDB
 
-| Dataset | Query Type | sieswi | DuckDB | Comparison |
-|---------|-----------|--------|--------|------------|
-| **1M rows (77MB)** | Selective (indexed) | 12ms | 1050ms | **85x faster** ⚡ |
-| **10M rows (768MB)** | Full scan | 770ms | 1050ms | **27% faster** ⚡ |
-| **130M rows (10GB)** | Full scan | 8.43s | 7.41s | 14% slower 🎯 |
+| Dataset              | Query Type          | sieswi | DuckDB | Comparison        |
+| -------------------- | ------------------- | ------ | ------ | ----------------- |
+| **1M rows (77MB)**   | Selective (indexed) | 12ms   | 1050ms | **85x faster** ⚡ |
+| **10M rows (768MB)** | Full scan           | 770ms  | 1050ms | **27% faster** ⚡ |
+| **130M rows (10GB)** | Full scan           | 8.43s  | 7.41s  | 14% slower 🎯     |
 
 **Key Features:**
+
 - ⚡ **Parallel processing** - Auto-detects large files, uses all CPU cores
 - 🎯 **Smart indexing** - `.sidx` sorted indexes for 85x speedup on selective queries
 - 🚀 **Streaming first** - Results appear instantly for small queries
@@ -59,23 +60,24 @@ sieswi "SELECT * FROM 'orders.csv' WHERE country = 'US'" > us_orders.csv
 sieswi supports the subset of SQL that makes sense for streaming:
 
 ✅ **Supported:**
-- `SELECT` with column projection: `SELECT name, age FROM ...`
-- `SELECT *` for all columns
-- `WHERE` with single predicates: `=`, `!=`, `>`, `>=`, `<`, `<=`
+
+- `SELECT` with column projection (`SELECT name, age FROM ...`) or `SELECT *`
+- `WHERE` comparisons: `=`, `!=`, `>`, `>=`, `<`, `<=`
+- Boolean expressions: `AND`, `OR`, `NOT`, parentheses for grouping
 - `LIMIT` for result capping
-- Numeric comparisons with type coercion
-- Case-insensitive column names
+- Numeric coercion (`"123"` == `123`) and case-insensitive columns
 
 ❌ **Not Supported (by design):**
-- `ORDER BY`, `GROUP BY`, `JOIN` - defeats streaming model
-- Multiple predicates (coming in Phase 4)
-- `IN`, `LIKE`, `BETWEEN` - planned features
+
+- `ORDER BY`, `GROUP BY`, `JOIN` – defeats streaming model
+- `IN`, `LIKE`, `BETWEEN`, `IS NULL` – planned features
 
 See [SQL_SUPPORT.md](SQL_SUPPORT.md) for full details.
 
 ## Use Cases
 
 **Perfect for:**
+
 - 🔍 Ad-hoc CSV exploration (`grep` for structured data)
 - 🚰 Unix pipelines: `tail -f logs.csv | sieswi "..." | ...`
 - 📊 Log analysis without loading into a database
@@ -83,6 +85,7 @@ See [SQL_SUPPORT.md](SQL_SUPPORT.md) for full details.
 - 🎯 Selective queries with `.sidx` indexes (100x+ speedup)
 
 **Not ideal for:**
+
 - Complex aggregations (use DuckDB/SQLite)
 - JOINs across multiple files
 - Analytics requiring ORDER BY
@@ -102,6 +105,7 @@ Input CSV → Parse Header┼─ File >10MB? ─→ Parallel Chunks (0.77s, 12 w
 ```
 
 **Parallel Processing:**
+
 - Splits file into 4MB chunks
 - Uses `runtime.GOMAXPROCS(0)` workers (all CPU cores)
 - RFC 4180 compliant CSV parsing with escaped quotes
@@ -123,12 +127,33 @@ See [PLAN.md](PLAN.md) for detailed roadmap.
 Run benchmarks yourself:
 
 ```bash
-# Generate test data
-go run ./cmd/gencsv > fixtures/ecommerce_1m.csv
+# Option 1: Use the prebuilt gencsv binary
+./gencsv -rows 1000000 -out fixtures/ecommerce_1m.csv
+
+# Option 2: Build and use from source
+go run ./cmd/gencsv -rows 1000000 -out fixtures/ecommerce_1m.csv
+
+# Generate larger datasets
+./gencsv -rows 10000000 -out fixtures/ecommerce_10m.csv   # 10M rows (~768MB)
+./gencsv -rows 130000000 -out fixtures/ecommerce_10gb.csv  # 130M rows (~10GB)
+
+# Generate sorted data (for .sidx index testing)
+./gencsv -rows 1000000 -sorted -out fixtures/sorted_1m.csv
+
+# Quick scripts for common fixtures
+./scripts/gen_ecommerce_fixture.sh      # 1M rows standard test data
+./scripts/generate_10gb_fixtures.sh     # 10GB test fixtures (takes ~10 min)
 
 # Run benchmark suite
 ./benchmarks/run_bench.sh
 ```
+
+**gencsv options:**
+
+- `-rows N` - Number of rows to generate (default: 1,000,000)
+- `-out PATH` - Output file path (default: `fixtures/ecommerce_1m.csv`)
+- `-seed N` - Random seed for reproducibility (default: 42)
+- `-sorted` - Generate with sorted timestamps (useful for index testing)
 
 Results stored in `benchmarks/results/` with detailed metrics.
 
@@ -166,6 +191,7 @@ fixtures/          # Test data
 ## Contributing
 
 sieswi is in active development. We welcome:
+
 - Bug reports and feature requests (open an issue)
 - Performance improvements
 - SQL operator implementations
