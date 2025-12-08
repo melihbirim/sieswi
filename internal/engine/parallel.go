@@ -42,9 +42,13 @@ func ParallelExecute(query sqlparser.Query, out io.Writer) error {
 		return fmt.Errorf("stat file: %w", err)
 	}
 
-	// Only use parallel processing for large files (>10MB) without LIMIT
-	if fileInfo.Size() < 10*1024*1024 || query.Limit >= 0 {
-		return nil // Caller will use sequential path
+	// Only use parallel processing for large files (>10MB)
+	// Skip for small LIMIT queries (< 10000 rows) where sequential is faster
+	if fileInfo.Size() < 10*1024*1024 {
+		return nil // File too small, use sequential
+	}
+	if query.Limit >= 0 && query.Limit < 10000 {
+		return nil // Small LIMIT, sequential is faster
 	}
 
 	file, err := os.Open(query.FilePath)
@@ -165,6 +169,11 @@ func ParallelExecute(query sqlparser.Query, out io.Writer) error {
 			}
 
 			for _, row := range rows {
+				// Check LIMIT before writing
+				if query.Limit >= 0 && rowCount >= query.Limit {
+					goto done // Exit both loops
+				}
+
 				if err := writer.Write(row); err != nil {
 					return fmt.Errorf("write row: %w", err)
 				}
@@ -181,6 +190,8 @@ func ParallelExecute(query sqlparser.Query, out io.Writer) error {
 			nextID++
 		}
 	}
+
+done:
 
 	writer.Flush()
 	if err := writer.Error(); err != nil {
@@ -233,13 +244,20 @@ func processChunk(
 		return nil, fmt.Errorf("seek: %w", err)
 	}
 
-	// Read chunk data
-	buf := make([]byte, ch.size+8192) // Extra space for partial line
-	n, err := io.ReadAtLeast(file, buf, int(ch.size))
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return nil, fmt.Errorf("read chunk: %w", err)
+	// Read chunk data with extra space for partial line
+	buf := make([]byte, ch.size+8192)
+	n, readErr := io.ReadFull(file, buf[:ch.size])
+	if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+		return nil, fmt.Errorf("read chunk: %w", readErr)
+	}
+
+	// Try to read extra bytes to find complete line
+	if readErr == nil {
+		extra, _ := file.Read(buf[n:]) // Best effort, ignore errors
+		n += extra
 	}
 	buf = buf[:n]
+	atEOF := (readErr == io.EOF || readErr == io.ErrUnexpectedEOF)
 
 	// If not first chunk, skip to next newline (avoid partial line)
 	start := 0
@@ -251,12 +269,19 @@ func processChunk(
 		start = idx + 1
 	}
 
-	// Find last complete line
+	// Find last complete line (only trim if not at EOF)
 	end := len(buf)
-	if ch.offset+int64(len(buf)) < ch.offset+ch.size+8192 {
-		// Not at EOF, find last newline
+	if !atEOF {
+		// Not at EOF, find last newline to avoid splitting a row
 		for end > start && buf[end-1] != '\n' {
 			end--
+		}
+		if end == start {
+			// No newline found in chunk - line too long or data issue
+			if os.Getenv("SIDX_DEBUG") == "1" {
+				fmt.Fprintf(os.Stderr, "[parallel] Warning: chunk %d has no newline, possibly line > 4MB\n", ch.id)
+			}
+			return nil, nil
 		}
 	}
 
@@ -268,7 +293,9 @@ func processChunk(
 	// Parse lines in chunk
 	var rows [][]string
 	scanner := bufio.NewScanner(bytes.NewReader(chunkData))
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	// Use large buffer to handle very long CSV lines (up to chunk size)
+	scanBuf := make([]byte, parallelChunkSize)
+	scanner.Buffer(scanBuf, parallelChunkSize)
 
 	// Pre-allocate rowMap for WHERE evaluation
 	var rowMap map[string]string
@@ -291,15 +318,14 @@ func processChunk(
 			continue
 		}
 
-		// Evaluate WHERE clause
+		// Evaluate WHERE clause (overwrite values, don't clear map)
 		if query.Where != nil {
-			// Clear and populate rowMap
-			for k := range rowMap {
-				delete(rowMap, k)
-			}
+			// Populate rowMap by overwriting (faster than clearing)
 			for i := range normalizedHeaders {
 				if i < len(fields) {
 					rowMap[normalizedHeaders[i]] = fields[i]
+				} else {
+					rowMap[normalizedHeaders[i]] = "" // Empty for missing columns
 				}
 			}
 			if !sqlparser.EvaluateNormalized(query.Where, rowMap) {
@@ -325,6 +351,7 @@ func processChunk(
 }
 
 // parseCSVLineInto parses a CSV line into the provided fields slice (reused).
+// Handles quoted fields with embedded commas and escaped quotes ("").
 // This reduces allocations by reusing the slice across calls.
 func parseCSVLineInto(line []byte, fields []string) []string {
 	start := 0
@@ -334,42 +361,85 @@ func parseCSVLineInto(line []byte, fields []string) []string {
 		c := line[i]
 
 		if c == '"' {
+			// Check for escaped quote ("")
+			if inQuote && i+1 < len(line) && line[i+1] == '"' {
+				i++ // Skip the escaped quote
+				continue
+			}
 			inQuote = !inQuote
 		} else if c == ',' && !inQuote {
-			// Trim spaces inline without allocating
-			fieldStart := start
-			fieldEnd := i
-
-			// Trim leading spaces
-			for fieldStart < fieldEnd && line[fieldStart] == ' ' {
-				fieldStart++
-			}
-			// Trim trailing spaces
-			for fieldEnd > fieldStart && line[fieldEnd-1] == ' ' {
-				fieldEnd--
-			}
-
-			fields = append(fields, string(line[fieldStart:fieldEnd]))
+			// Field boundary - extract and clean
+			fields = append(fields, cleanField(line[start:i]))
 			start = i + 1
 		}
 	}
 
 	// Last field
-	if start < len(line) {
-		fieldStart := start
-		fieldEnd := len(line)
-
-		// Trim leading spaces
-		for fieldStart < fieldEnd && line[fieldStart] == ' ' {
-			fieldStart++
-		}
-		// Trim trailing spaces
-		for fieldEnd > fieldStart && line[fieldEnd-1] == ' ' {
-			fieldEnd--
-		}
-
-		fields = append(fields, string(line[fieldStart:fieldEnd]))
+	if start <= len(line) {
+		fields = append(fields, cleanField(line[start:]))
 	}
 
 	return fields
+}
+
+// cleanField trims spaces and removes surrounding quotes from a CSV field.
+func cleanField(field []byte) string {
+	if len(field) == 0 {
+		return ""
+	}
+
+	// Fast path: no quotes and no spaces - just convert to string
+	hasQuote := field[0] == '"'
+	hasSpace := field[0] == ' ' || field[len(field)-1] == ' '
+
+	if !hasQuote && !hasSpace {
+		return string(field)
+	}
+
+	// Trim leading/trailing spaces
+	fieldStart := 0
+	fieldEnd := len(field)
+
+	for fieldStart < fieldEnd && field[fieldStart] == ' ' {
+		fieldStart++
+	}
+	for fieldEnd > fieldStart && field[fieldEnd-1] == ' ' {
+		fieldEnd--
+	}
+
+	if fieldStart >= fieldEnd {
+		return ""
+	}
+
+	// Remove surrounding quotes if present
+	if field[fieldStart] == '"' && field[fieldEnd-1] == '"' {
+		fieldStart++
+		fieldEnd--
+
+		// Check if ANY escaped quotes exist
+		hasEscapedQuotes := false
+		for i := fieldStart; i < fieldEnd-1; i++ {
+			if field[i] == '"' && field[i+1] == '"' {
+				hasEscapedQuotes = true
+				break
+			}
+		}
+
+		if hasEscapedQuotes {
+			// Build unescaped string in one pass
+			var result strings.Builder
+			result.Grow(fieldEnd - fieldStart)
+			for i := fieldStart; i < fieldEnd; i++ {
+				if field[i] == '"' && i+1 < fieldEnd && field[i+1] == '"' {
+					result.WriteByte('"')
+					i++ // Skip the second quote
+				} else {
+					result.WriteByte(field[i])
+				}
+			}
+			return result.String()
+		}
+	}
+
+	return string(field[fieldStart:fieldEnd])
 }
