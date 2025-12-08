@@ -80,7 +80,8 @@ Bob,25" | sieswi "SELECT * FROM '-' WHERE age > 26"
 ```
 
 Expected output:
-```
+
+```bash
 name,age
 Alice,30
 ```
@@ -98,11 +99,13 @@ docker run --rm -v $(pwd):/data sieswi "SELECT * FROM '/data/file.csv' WHERE col
 ## Uninstall
 
 ### Homebrew
+
 ```bash
 brew uninstall sieswi
 ```
 
 ### Manual
+
 ```bash
 rm /usr/local/bin/sieswi  # or wherever you installed it
 rm $(which sieswi)        # find and remove

@@ -26,7 +26,7 @@ The script:
 
 Example snippet from the results file:
 
-```
+```bash
 ## sieswi - country_eq
         0.07 real         0.00 user         0.00 sys
              4587520  maximum resident set size
