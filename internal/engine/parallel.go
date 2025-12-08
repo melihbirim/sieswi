@@ -339,7 +339,7 @@ func parseCSVLineInto(line []byte, fields []string) []string {
 			// Trim spaces inline without allocating
 			fieldStart := start
 			fieldEnd := i
-			
+
 			// Trim leading spaces
 			for fieldStart < fieldEnd && line[fieldStart] == ' ' {
 				fieldStart++
@@ -348,7 +348,7 @@ func parseCSVLineInto(line []byte, fields []string) []string {
 			for fieldEnd > fieldStart && line[fieldEnd-1] == ' ' {
 				fieldEnd--
 			}
-			
+
 			fields = append(fields, string(line[fieldStart:fieldEnd]))
 			start = i + 1
 		}
@@ -358,7 +358,7 @@ func parseCSVLineInto(line []byte, fields []string) []string {
 	if start < len(line) {
 		fieldStart := start
 		fieldEnd := len(line)
-		
+
 		// Trim leading spaces
 		for fieldStart < fieldEnd && line[fieldStart] == ' ' {
 			fieldStart++
@@ -367,7 +367,7 @@ func parseCSVLineInto(line []byte, fields []string) []string {
 		for fieldEnd > fieldStart && line[fieldEnd-1] == ' ' {
 			fieldEnd--
 		}
-		
+
 		fields = append(fields, string(line[fieldStart:fieldEnd]))
 	}
 
