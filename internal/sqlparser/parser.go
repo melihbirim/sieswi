@@ -304,11 +304,6 @@ func splitOnOperator(input string, op string) []string {
 	return parts
 }
 
-// parsePredicate is kept for backward compatibility (deprecated)
-func parsePredicate(input string) (Predicate, error) {
-	return parseComparison(input)
-}
-
 func trimQuotes(input string) string {
 	if len(input) >= 2 {
 		if (input[0] == '\'' && input[len(input)-1] == '\'') || (input[0] == '"' && input[len(input)-1] == '"') {
@@ -322,13 +317,14 @@ func trimQuotes(input string) string {
 func Evaluate(expr Expression, row map[string]string) bool {
 	switch e := expr.(type) {
 	case BinaryExpr:
-		if e.Operator == "AND" {
+		switch e.Operator {
+		case "AND":
 			// Short-circuit: if left is false, return false without evaluating right
 			if !Evaluate(e.Left, row) {
 				return false
 			}
 			return Evaluate(e.Right, row)
-		} else if e.Operator == "OR" {
+		case "OR":
 			// Short-circuit: if left is true, return true without evaluating right
 			if Evaluate(e.Left, row) {
 				return true
@@ -359,12 +355,13 @@ func Evaluate(expr Expression, row map[string]string) bool {
 func EvaluateNormalized(expr Expression, row map[string]string) bool {
 	switch e := expr.(type) {
 	case *BinaryExpr:
-		if e.Operator == "AND" {
+		switch e.Operator {
+		case "AND":
 			if !EvaluateNormalized(e.Left, row) {
 				return false
 			}
 			return EvaluateNormalized(e.Right, row)
-		} else if e.Operator == "OR" {
+		case "OR":
 			if EvaluateNormalized(e.Left, row) {
 				return true
 			}
@@ -373,12 +370,13 @@ func EvaluateNormalized(expr Expression, row map[string]string) bool {
 		return false
 
 	case BinaryExpr:
-		if e.Operator == "AND" {
+		switch e.Operator {
+		case "AND":
 			if !EvaluateNormalized(e.Left, row) {
 				return false
 			}
 			return EvaluateNormalized(e.Right, row)
-		} else if e.Operator == "OR" {
+		case "OR":
 			if EvaluateNormalized(e.Left, row) {
 				return true
 			}

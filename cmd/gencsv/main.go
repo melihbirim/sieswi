@@ -53,7 +53,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	rand.Seed(*seed)
+	rng := rand.New(rand.NewSource(*seed))
 
 	countries := []string{"UK", "US", "DE", "FR", "ES", "IT", "NL", "CA", "AU", "SE"}
 	statuses := []string{"pending", "processing", "completed", "cancelled", "refunded"}
@@ -64,21 +64,21 @@ func main() {
 
 	for i := 0; i < *rows; i++ {
 		orderID := fmt.Sprintf("ORD%09d", i+1)
-		userID := fmt.Sprintf("USR%06d", rand.Intn(200_000)+1)
-		productID := fmt.Sprintf("PRD%05d", rand.Intn(20_000)+1)
-		quantity := rand.Intn(5) + 1
-		priceMinor := rand.Intn(9000) + 1000 // 4-digit price (1000 => £10.00)
+		userID := fmt.Sprintf("USR%06d", rng.Intn(200_000)+1)
+		productID := fmt.Sprintf("PRD%05d", rng.Intn(20_000)+1)
+		quantity := rng.Intn(5) + 1
+		priceMinor := rng.Intn(9000) + 1000 // 4-digit price (1000 => £10.00)
 		discountMinor := 0
-		if rand.Float64() < 0.15 {
-			discountMinor = rand.Intn(priceMinor/5 + 1)
+		if rng.Float64() < 0.15 {
+			discountMinor = rng.Intn(priceMinor/5 + 1)
 		}
 		subtotal := priceMinor * quantity
 		totalMinor := subtotal - discountMinor
 		if totalMinor < 0 {
 			totalMinor = 0
 		}
-		status := statuses[rand.Intn(len(statuses))]
-		country := countries[rand.Intn(len(countries))]
+		status := statuses[rng.Intn(len(statuses))]
+		country := countries[rng.Intn(len(countries))]
 
 		// Generate timestamp
 		var createdAt string

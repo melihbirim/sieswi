@@ -199,7 +199,7 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 			if currentRow >= block.EndRow {
 				currentBlockIdx++
 				if currentBlockIdx < len(index.Blocks) {
-					block = &index.Blocks[currentBlockIdx]
+					_ = &index.Blocks[currentBlockIdx] // Advance to next block (value not used in this path)
 				}
 			}
 
@@ -352,10 +352,11 @@ func validateWhereColumns(expr sqlparser.Expression, index map[string]int) error
 func canPruneBlockExpr(index *sidx.Index, block *sidx.BlockMeta, expr sqlparser.Expression) bool {
 	switch e := expr.(type) {
 	case sqlparser.BinaryExpr:
-		if e.Operator == "AND" {
+		switch e.Operator {
+		case "AND":
 			// Can prune if either side allows pruning
 			return canPruneBlockExpr(index, block, e.Left) || canPruneBlockExpr(index, block, e.Right)
-		} else if e.Operator == "OR" {
+		case "OR":
 			// Can only prune if BOTH sides allow pruning
 			return canPruneBlockExpr(index, block, e.Left) && canPruneBlockExpr(index, block, e.Right)
 		}

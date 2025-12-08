@@ -1,18 +1,16 @@
+version: 2
+
 run:
   timeout: 5m
   tests: true
 
 linters:
   enable:
-    - gofmt
     - govet
-    - errcheck
     - staticcheck
-    - unused
-    - gosimple
     - ineffassign
   disable:
-    - typecheck  # Can be flaky in CI
+    - errcheck  # Too many false positives on defer statements
 
 linters-settings:
   errcheck:

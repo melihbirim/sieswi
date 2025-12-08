@@ -11,21 +11,6 @@ import (
 	"strings"
 )
 
-type countingReader struct {
-	r      io.Reader
-	offset int64
-}
-
-func (c *countingReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.offset += int64(n)
-	return n, err
-}
-
-func (c *countingReader) Offset() int64 {
-	return c.offset
-}
-
 // Builder collects statistics while scanning a CSV file
 type Builder struct {
 	blockSize  uint32
@@ -433,7 +418,7 @@ func ValidateIndex(index *Index, csvPath string) error {
 		}
 
 		for i, csvCol := range headerRecord {
-			if strings.ToLower(strings.TrimSpace(csvCol)) != strings.ToLower(index.Header.Columns[i].Name) {
+			if !strings.EqualFold(strings.TrimSpace(csvCol), index.Header.Columns[i].Name) {
 				return fmt.Errorf("column %d mismatch: CSV has %q, index has %q",
 					i, csvCol, index.Header.Columns[i].Name)
 			}
