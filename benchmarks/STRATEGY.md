@@ -3,6 +3,7 @@
 ## DuckDB's Strengths (Where We Compete)
 
 DuckDB excels at:
+
 - ✅ **Aggregations** (GROUP BY, COUNT, AVG, SUM) - columnar storage shines here
 - ✅ **Analytical queries** - complex multi-table JOINs, window functions
 - ✅ **Full scans** with heavy computation - vectorized execution
@@ -18,17 +19,20 @@ DuckDB excels at:
 ### 1. ⚡ Time-to-First-Row (Interactive Queries)
 
 **Current Results:**
+
 - sieswi LIMIT 1: **10ms**
 - DuckDB LIMIT 1: **228ms**
 - **23x faster** 🚀
 
 **Why we win:**
+
 - Zero query planning overhead
 - No vectorization setup
 - Instant streaming start
 - Minimal memory allocation
 
 **Target scenarios:**
+
 ```sql
 -- Quick sampling
 SELECT * FROM huge.csv LIMIT 10
@@ -47,17 +51,20 @@ SELECT * FROM users.csv WHERE id = '12345'
 ### 2. 🧠 Memory-Constrained Environments
 
 **Current Results:**
+
 - sieswi: **4-9 MB**
 - DuckDB: **104-109 MB**
 - **25x less memory** 🏆
 
 **Why we win:**
+
 - No in-memory buffers
 - No columnar conversion
 - No query plan structures
 - Row-by-row streaming
 
 **Target scenarios:**
+
 - Cloud functions (256MB Lambda)
 - Edge devices (Raspberry Pi)
 - Docker containers with limited RAM
@@ -80,12 +87,14 @@ SELECT * FROM huge.csv WHERE id = '500000'
 ```
 
 **Why we'll dominate:**
+
 - DuckDB reads entire file for selective queries
 - sieswi .sidx: min/max stats per 64k-row block
 - Seek directly to relevant byte ranges
 - Stream only matching blocks
 
 **Benchmark target (Phase 3):**
+
 - 10GB CSV, 100M rows
 - Query: `WHERE id = 'specific_value'` (0.001% selectivity)
 - sieswi: < 50ms (with .sidx)
@@ -110,6 +119,7 @@ sieswi "SELECT * FROM data.csv WHERE value > 1000 LIMIT 20"  # instant
 ```
 
 **Why we win:**
+
 - No schema inference delay
 - No table creation
 - No import step
@@ -137,6 +147,7 @@ sieswi "SELECT * FROM source.csv WHERE date > '2024-01-01'" | \
 ```
 
 **Why we win:**
+
 - True streaming (no buffering)
 - UNIX philosophy (stdin/stdout)
 - Composable with pipes
@@ -149,10 +160,12 @@ sieswi "SELECT * FROM source.csv WHERE date > '2024-01-01'" | \
 ### 6. 💾 Embedded / Zero-Dependency Scenarios
 
 **Current:**
+
 - sieswi: 5 MB static binary, stdlib only
 - DuckDB: ~50 MB binary, complex installation
 
 **Target use cases:**
+
 - Git hooks (lint CSVs on commit)
 - CI/CD pipelines (quick CSV validation)
 - Embedded in other tools
@@ -165,29 +178,34 @@ sieswi "SELECT * FROM source.csv WHERE date > '2024-01-01'" | \
 ## Attack Plan: Become 10x Better
 
 ### Phase 1 (Current) - Foundation ✅
+
 - [x] Baseline streaming engine
 - [x] 2-3x faster than DuckDB
 - [x] 25x less memory
 - [ ] **TODO:** Add periodic flush (100 rows) for true streaming UX
 
 ### Phase 2 (Next Week) - Benchmark & Optimize
+
 - [ ] Benchmark 10GB CSV (validate scaling)
 - [ ] Profile CPU hotspots (target: CSV parsing < 30% of time)
 - [ ] Test needle-in-haystack scenarios (setup for Phase 3)
 - [ ] Document where DuckDB is faster (be honest)
 
 ### Phase 3 (2 Weeks) - .sidx Index = Game Changer
+
 - [ ] Implement min/max stats per block
 - [ ] Byte offset seeking
 - [ ] Block pruning for selective queries
 - [ ] **Target: 100x faster** on high-selectivity queries
 
 ### Phase 4 (3 Weeks) - AND/OR Predicates
+
 - [ ] Support `WHERE a = 1 AND b > 10`
 - [ ] Maintain streaming performance
 - [ ] Index pruning for compound predicates
 
 ### Phase 5 (4 Weeks) - UX Polish
+
 - [ ] Streaming progress bar (rows/sec, estimated time)
 - [ ] `--sample N` mode (10x faster exploration)
 - [ ] Output formats (JSON, table)
@@ -198,15 +216,19 @@ sieswi "SELECT * FROM source.csv WHERE date > '2024-01-01'" | \
 ## Marketing Angles (Once We Prove It)
 
 ### "The 10ms CSV Query Engine"
+
 > "While DuckDB is thinking, Sieswi has already given you the answer."
 
 ### "Zero-Load Data"
+
 > "No import. No setup. No waiting. Just query your CSVs instantly."
 
 ### "Streaming-Native"
+
 > "See results as they're found. Perfect for pipes, real-time logs, and interactive exploration."
 
 ### "Runs Anywhere"
+
 > "From Raspberry Pi to Lambda. 5 MB binary, 10 MB RAM. That's it."
 
 ---
@@ -225,12 +247,12 @@ sieswi "SELECT * FROM source.csv WHERE date > '2024-01-01'" | \
 
 ## Success Metrics (Phase 3 Target)
 
-| Scenario | DuckDB | Sieswi | Improvement |
-|----------|--------|--------|-------------|
-| LIMIT 1 query | 228ms | 10ms | **23x** ✅ |
-| Selective query (0.01%) | 2-5s | 50ms | **100x** 🎯 |
-| Memory usage | 100 MB | 5 MB | **20x** ✅ |
-| First-row latency | 120-200ms | < 50ms | **4x** 🎯 |
-| Binary size | 50 MB | < 5 MB | **10x** ✅ |
+| Scenario                | DuckDB    | Sieswi | Improvement |
+| ----------------------- | --------- | ------ | ----------- |
+| LIMIT 1 query           | 228ms     | 10ms   | **23x** ✅  |
+| Selective query (0.01%) | 2-5s      | 50ms   | **100x** 🎯 |
+| Memory usage            | 100 MB    | 5 MB   | **20x** ✅  |
+| First-row latency       | 120-200ms | < 50ms | **4x** 🎯   |
+| Binary size             | 50 MB     | < 5 MB | **10x** ✅  |
 
 **When we hit these targets, we'll have compelling 10x+ stories across multiple dimensions.** 🚀

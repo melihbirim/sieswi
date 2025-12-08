@@ -77,12 +77,14 @@ Footer (future): checksum or padding (not yet used)
 ### Build Performance
 
 **Measured on 10GB CSV (130M rows, 10 columns):**
+
 - **Build time:** ~200 seconds (~3.3 minutes)
 - **Throughput:** ~50 MB/s
 - **Peak memory:** ~118 MB
 - **Index size:** 568 KB (0.006% of CSV size)
 
 **Why it takes time:**
+
 - Must read entire CSV file to track accurate byte offsets for seeking
 - CSV parsing overhead (quotes, escaping, field splitting)
 - Type inference sampling (256 rows per column)
@@ -96,26 +98,31 @@ Footer (future): checksum or padding (not yet used)
 **High-Impact Optimizations:**
 
 1. **Faster Stream Parsing** (~40% speedup)
+
    - Increase bufio.Reader from 512KB to 1-4MB
    - Use `ReadSlice('\n')` + manual stripping vs `ReadBytes('\n')` to eliminate allocations
    - Reuse single `[]byte` buffer across rows
 
 2. **Parallel Column Stats** (~50% speedup)
+
    - Split each block into per-column workers (10 goroutines for 10 columns)
    - Or coarse-grained: one goroutine per CPU core processing chunks
    - Synchronize only at block boundaries
 
 3. **Smarter Type Inference** (~15% speedup)
+
    - Single pass over first 65K-row block instead of 256-row sampling
    - Compute stats + type flags together (one loop instead of two)
    - Eliminates redundant parsing
 
 4. **Optional Features** (~20% speedup for known schemas)
+
    - `--skip-type-inference` flag: assume all columns are strings
    - Eliminates repeated `ParseFloat` calls during type detection
    - User can specify column types via `--column-types=price:numeric,timestamp:numeric`
 
 5. **Batch I/O** (~10% speedup)
+
    - Memory-map file or use `ReadAt` with large chunks (4-8MB)
    - Enables kernel prefetching and reduces syscalls
 
@@ -127,6 +134,7 @@ Footer (future): checksum or padding (not yet used)
 **Combined Impact:** 200s → 60-90s for 10GB (~100 MB/s throughput)
 
 **Profile-Driven Approach:**
+
 ```bash
 # Profile index build
 CPUPROFILE=/tmp/build.prof ./sieswi index huge.csv
