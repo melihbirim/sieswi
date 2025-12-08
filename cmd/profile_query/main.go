@@ -16,7 +16,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close profile: %v\n", err)
+		}
+	}()
 
 	if err := pprof.StartCPUProfile(f); err != nil {
 		panic(err)
@@ -30,7 +34,11 @@ func main() {
 	}
 
 	writer := bufio.NewWriter(os.Stdout)
-	defer writer.Flush()
+	defer func() {
+		if err := writer.Flush(); err != nil {
+			fmt.Fprintf(os.Stderr, "flush output: %v\n", err)
+		}
+	}()
 
 	if err := engine.Execute(query, writer); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

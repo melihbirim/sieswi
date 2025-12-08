@@ -64,7 +64,6 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          args: --timeout=5m --disable=errcheck --enable=govet,staticcheck,ineffassign,unused
 
   build:
     runs-on: ubuntu-latest

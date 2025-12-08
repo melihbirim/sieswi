@@ -32,7 +32,10 @@ func main() {
 		// Parse flags for index command
 		indexFlags := flag.NewFlagSet("index", flag.ExitOnError)
 		skipTypeInference := indexFlags.Bool("skip-type-inference", false, "Skip type inference, assume all columns are strings (faster)")
-		indexFlags.Parse(os.Args[2:])
+		if err := indexFlags.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "parse flags: %v\n", err)
+			os.Exit(1)
+		}
 
 		if indexFlags.NArg() < 1 {
 			fmt.Fprintln(os.Stderr, "usage: sieswi index [--skip-type-inference] <csvfile>")
@@ -60,7 +63,11 @@ func main() {
 	}
 
 	writer := bufio.NewWriter(os.Stdout)
-	defer writer.Flush()
+	defer func() {
+		if err := writer.Flush(); err != nil {
+			fmt.Fprintf(os.Stderr, "flush output: %v\n", err)
+		}
+	}()
 
 	if err := engine.Execute(query, writer); err != nil {
 		fmt.Fprintln(os.Stderr, "execution error:", err)
@@ -83,7 +90,11 @@ func buildIndex(csvPath string, skipTypeInference bool) error {
 	if err != nil {
 		return fmt.Errorf("create index file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close index file: %v\n", err)
+		}
+	}()
 
 	if err := sidx.WriteIndex(f, index); err != nil {
 		return fmt.Errorf("write index: %w", err)

@@ -31,10 +31,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "create file: %v\n", err)
 		os.Exit(1)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close file: %v\n", err)
+		}
+	}()
 
 	writer := csv.NewWriter(bufio.NewWriterSize(file, 1<<20))
-	defer writer.Flush()
+	defer func() {
+		writer.Flush()
+	}()
 
 	header := []string{
 		"order_id",
@@ -121,5 +127,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stdout, "wrote %d rows to %s\n", *rows, *outPath)
+	if _, err := fmt.Fprintf(os.Stdout, "wrote %d rows to %s\n", *rows, *outPath); err != nil {
+		fmt.Fprintf(os.Stderr, "write message: %v\n", err)
+	}
 }

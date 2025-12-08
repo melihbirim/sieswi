@@ -399,11 +399,15 @@ func ValidateIndex(index *Index, csvPath string) error {
 
 	// Validate that CSV header matches index columns (only if columns are defined)
 	if len(index.Header.Columns) > 0 {
-		f, err := os.Open(csvPath)
-		if err != nil {
-			return fmt.Errorf("open CSV for header check: %w", err)
+	f, err := os.Open(csvPath)
+	if err != nil {
+		return fmt.Errorf("open CSV for header check: %w", err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil && os.Getenv("SIDX_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "[sidx] Failed to close CSV file: %v\n", err)
 		}
-		defer f.Close()
+	}()
 
 		reader := bufio.NewReader(f)
 		headerLine, err := reader.ReadBytes('\n')
