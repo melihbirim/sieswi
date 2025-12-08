@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/sieswi/sieswi/internal/sqlparser"
 )
+
+var errSkipParallel = errors.New("parallel processing skipped")
 
 const (
 	// Size of chunks for parallel processing
@@ -45,10 +48,10 @@ func ParallelExecute(query sqlparser.Query, out io.Writer) error {
 	// Only use parallel processing for large files (>10MB)
 	// Skip for small LIMIT queries (< 10000 rows) where sequential is faster
 	if fileInfo.Size() < 10*1024*1024 {
-		return nil // File too small, use sequential
+		return errSkipParallel // File too small, use sequential
 	}
 	if query.Limit >= 0 && query.Limit < 10000 {
-		return nil // Small LIMIT, sequential is faster
+		return errSkipParallel // Small LIMIT, sequential is faster
 	}
 
 	file, err := os.Open(query.FilePath)

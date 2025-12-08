@@ -17,6 +17,19 @@ const (
 	defaultFlushEveryN = 8192       // Flush every N rows - higher for bulk throughput.
 )
 
+// tryParallelExecute attempts parallel execution and returns (handled, error).
+// If handled=false, caller should fall back to sequential.
+// If handled=true, the error indicates success (nil) or failure.
+func tryParallelExecute(query sqlparser.Query, out io.Writer) (bool, error) {
+	err := ParallelExecute(query, out)
+	if err == errSkipParallel {
+		// Parallel processing was skipped, use sequential
+		return false, nil
+	}
+	// Parallel was attempted (either succeeded with nil or failed with error)
+	return true, err
+}
+
 // Execute streams query results to the provided writer.
 func Execute(query sqlparser.Query, out io.Writer) error {
 	// Try to load and validate index
@@ -35,12 +48,14 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 	}
 
 	// Try parallel execution for large files without index
+	// ParallelExecute returns nil if it should be skipped (file too small, small LIMIT, etc.)
+	// It returns a real error only if parallel processing failed
 	if index == nil && os.Getenv("SIDX_NO_PARALLEL") != "1" {
-		if err := ParallelExecute(query, out); err == nil {
-			return nil // Parallel execution succeeded
-		} else if os.Getenv("SIDX_DEBUG") == "1" {
-			fmt.Fprintf(os.Stderr, "[parallel] Failed or skipped: %v, falling back to sequential\n", err)
+		parallelHandled, err := tryParallelExecute(query, out)
+		if parallelHandled {
+			return err // Parallel execution was attempted, return its result
 		}
+		// Fall through to sequential execution
 	}
 
 	file, err := os.Open(query.FilePath)
