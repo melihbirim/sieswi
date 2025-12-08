@@ -58,7 +58,11 @@ func ParallelExecute(query sqlparser.Query, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("open CSV: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil && os.Getenv("SIDX_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "[sidx] Failed to close CSV file: %v\n", err)
+		}
+	}()
 
 	// Read header first (sequential)
 	reader := csv.NewReader(bufio.NewReaderSize(file, ioBufferSize))
@@ -225,7 +229,11 @@ func processChunks(
 		results <- result{err: err}
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil && os.Getenv("SIDX_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "[sidx] Worker failed to close file: %v\n", err)
+		}
+	}()
 
 	for ch := range chunks {
 		rows, err := processChunk(file, ch, query, normalizedHeaders, selectedIdxs, header)

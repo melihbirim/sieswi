@@ -87,7 +87,11 @@ func (b *Builder) BuildFromFile(csvPath string) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil && os.Getenv("SIDX_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "[sidx] Failed to close CSV file: %v\n", err)
+		}
+	}()
 
 	stat, err := f.Stat()
 	if err != nil {

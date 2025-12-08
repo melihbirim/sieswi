@@ -44,7 +44,9 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 				fmt.Fprintf(os.Stderr, "[sidx] Index invalid: %v\n", err)
 			}
 		}
-		indexFile.Close()
+		if err := indexFile.Close(); err != nil && os.Getenv("SIDX_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "[sidx] Failed to close index file: %v\n", err)
+		}
 	}
 
 	// Check if reading from stdin
@@ -70,7 +72,11 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("open CSV: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil && os.Getenv("SIDX_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "[sidx] Failed to close CSV file: %v\n", err)
+		}
+	}()
 
 	// Note: We need file handle for seeking, can't use buffered reader until after seeks
 	var reader *csv.Reader
