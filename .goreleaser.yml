@@ -27,7 +27,6 @@ builds:
 
 archives:
   - id: sieswi
-    format: tar.gz
     name_template: "sieswi_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
@@ -35,13 +34,14 @@ archives:
     files:
       - README.md
       - LICENSE
-      - PARALLEL_PROCESSING.md
+      - INSTALL.md
+      - CHANGELOG.md
 
 checksum:
   name_template: 'checksums.txt'
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc
