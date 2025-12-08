@@ -79,7 +79,25 @@ See [SQL_SUPPORT.md](SQL_SUPPORT.md) for full details.
 **Perfect for:**
 
 - 🔍 Ad-hoc CSV exploration (`grep` for structured data)
-- 🚰 Unix pipelines: `tail -f logs.csv | sieswi "..." | ...`
+- 🚰 Unix pipelines for streaming data:
+  ```bash
+  # Monitor live logs for errors (use '-' for stdin)
+  tail -f logs.csv | sieswi "SELECT timestamp, message FROM '-' WHERE level = 'ERROR'"
+  
+  # Stream and filter API requests
+  tail -f access.csv | sieswi "SELECT ip, endpoint FROM '-' WHERE status >= 400"
+  
+  # Pipe data through sieswi
+  cat orders.csv | sieswi "SELECT country, total_minor FROM '-' WHERE total_minor > 10000" | wc -l
+  
+  # Chain multiple filters
+  cat data.csv | sieswi "SELECT * FROM '-' WHERE country = 'US'" | sieswi "SELECT name, age FROM '-' WHERE age > 25"
+  
+  # Process multiple files
+  for file in logs/*.csv; do
+    cat "$file" | sieswi "SELECT * FROM '-' WHERE level = 'ERROR'" >> all_errors.csv
+  done
+  ```
 - 📊 Log analysis without loading into a database
 - ⚡ Quick data quality checks
 - 🎯 Selective queries with `.sidx` indexes (100x+ speedup)

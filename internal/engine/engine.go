@@ -47,6 +47,14 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 		indexFile.Close()
 	}
 
+	// Check if reading from stdin
+	isStdin := query.FilePath == "-" || query.FilePath == "stdin"
+	
+	if isStdin {
+		// Stdin: cannot use parallel, index, or seeking - direct sequential stream
+		return executeFromStdin(query, out)
+	}
+	
 	// Try parallel execution for large files without index
 	// ParallelExecute returns nil if it should be skipped (file too small, small LIMIT, etc.)
 	// It returns a real error only if parallel processing failed
@@ -359,4 +367,96 @@ func canPruneBlockExpr(index *sidx.Index, block *sidx.BlockMeta, expr sqlparser.
 		return sidx.CanPruneBlock(index, block, e.Column, e.Operator, e.Value)
 	}
 	return false
+}
+
+// executeFromStdin handles queries reading from stdin (piped data)
+func executeFromStdin(query sqlparser.Query, out io.Writer) error {
+	reader := csv.NewReader(bufio.NewReader(os.Stdin))
+	reader.ReuseRecord = true
+	reader.FieldsPerRecord = -1
+
+	// Read header
+	header, err := reader.Read()
+	if err != nil {
+		return fmt.Errorf("read header: %w", err)
+	}
+
+	// Build column map
+	colMap := make(map[string]int, len(header))
+	for i, col := range header {
+		colMap[strings.ToLower(col)] = i
+	}
+
+	// Determine output columns
+	outCols := header
+	outIndices := make([]int, len(header))
+	for i := range outIndices {
+		outIndices[i] = i
+	}
+
+	if !query.AllColumns {
+		outCols = query.Columns
+		outIndices = make([]int, len(query.Columns))
+		for i, col := range query.Columns {
+			idx, ok := colMap[strings.ToLower(col)]
+			if !ok {
+				return fmt.Errorf("column not found: %s", col)
+			}
+			outIndices[i] = idx
+		}
+	}
+
+	// Write output header
+	writer := csv.NewWriter(out)
+	defer writer.Flush()
+
+	if err := writer.Write(outCols); err != nil {
+		return fmt.Errorf("write header: %w", err)
+	}
+
+	// Stream rows
+	rowCount := 0
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read row: %w", err)
+		}
+
+		// Apply WHERE filter
+		if query.Where != nil {
+			// Build row map for evaluation
+			rowMap := make(map[string]string, len(record))
+			for col, idx := range colMap {
+				if idx < len(record) {
+					rowMap[col] = record[idx]
+				}
+			}
+			
+			if !sqlparser.Evaluate(query.Where, rowMap) {
+				continue
+			}
+		}
+
+		// Build output row
+		outRow := make([]string, len(outIndices))
+		for i, idx := range outIndices {
+			if idx < len(record) {
+				outRow[i] = record[idx]
+			}
+		}
+
+		if err := writer.Write(outRow); err != nil {
+			return fmt.Errorf("write row: %w", err)
+		}
+
+		rowCount++
+		if query.Limit > 0 && rowCount >= query.Limit {
+			break
+		}
+	}
+
+	return nil
 }
