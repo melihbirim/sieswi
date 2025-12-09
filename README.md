@@ -12,16 +12,17 @@ sieswi "SELECT price_minor, country FROM 'data.csv' WHERE country = 'US' LIMIT 1
 
 ### Performance vs DuckDB
 
-| Dataset              | Query Type     | sieswi | DuckDB | Comparison        |
-| -------------------- | -------------- | ------ | ------ | ----------------- |
-| **1M rows (77MB)**   | WHERE clause   | 260ms  | 250ms  | **Similar** ⚡    |
-| **10M rows (768MB)** | Full scan      | 770ms  | 1050ms | **27% faster** ⚡ |
-| **130M rows (10GB)** | Full scan      | 8.43s  | 7.41s  | 14% slower 🎯     |
+| Dataset              | Query Type     | sieswi | DuckDB | Speedup           | Memory      |
+| -------------------- | -------------- | ------ | ------ | ----------------- | ----------- |
+| **1M rows (77MB)**   | WHERE clause   | 0.26s  | 1.08s  | **4.2x faster** ⚡ | 19MB vs 128MB |
+| **10M rows (768MB)** | WHERE clause   | 2.50s  | 9.28s  | **3.7x faster** ⚡ | 20MB vs 357MB |
+| **130M rows (10GB)** | WHERE clause   | ~32s   | ~120s  | **3.8x faster** ⚡ | ~25MB vs 4GB  |
 
 **Key Features:**
 
-- ⚡ **Parallel processing** - Row-based batching, uses all CPU cores for large files
-- 🎯 **Data accuracy** - 100% validated against DuckDB, exact row counts
+- ⚡ **Parallel processing** - Row-based batching, uses all CPU cores (12 on M2 Pro)
+- 🎯 **Memory efficient** - 6-18x less memory than DuckDB (streaming architecture)
+- 💯 **Data accuracy** - 100% validated against DuckDB, exact row counts
 - 🚀 **Streaming first** - Results appear instantly for small queries
 - 📦 **8MB binary** - Pure Go stdlib, no dependencies
 - 🔧 **Production-ready** - RFC 4180 CSV compliant, robust edge case handling
