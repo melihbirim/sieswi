@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2025-12-09
+
+### Fixed
+- **Critical:** Fixed parallel processing data loss bug that was missing ~1,343 rows (0.13%)
+  - Replaced byte-offset chunking with row-based batching architecture
+  - Eliminated chunk boundary issues that caused row loss
+  - Now returns exact same row counts as DuckDB (100% data accuracy)
+- **Validation:** All queries now validated against DuckDB as ground truth
+  - 1M rows: 1,000,000 (was 998,657) ✓
+  - WHERE country='UK': 100,038 (was 99,903) ✓
+  - 10M WHERE country='UK': 1,001,352 (matches DuckDB) ✓
+
+### Changed
+- **Architecture:** Complete rewrite of parallel processing engine
+  - New: Row-based batching with 10,000 rows per batch
+  - Old: Byte-offset chunking with 4MB chunks (had bugs)
+  - Clean separation: 1 reader goroutine + N worker goroutines
+  - Batch struct ensures complete rows, no boundary issues
+- **Index:** Temporarily disabled index functionality
+  - Index was returning incorrect row counts (25K instead of 100K)
+  - Parallel processing is fast enough without index (~0.26s for 1M rows)
+  - Index building code preserved for future re-implementation
+
+### Performance
+- Parallel processing: ~0.26s for 1M row WHERE queries
+- Data correctness: 100% match with DuckDB
+- Memory: Efficient batch processing (3-15 MB typical)
+
 ## [1.0.0] - 2025-12-08
 
 ### Added
@@ -67,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 25x less memory usage
 - 50x smaller binary size
 
-[Unreleased]: https://github.com/melihbirim/sieswi/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/melihbirim/sieswi/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/melihbirim/sieswi/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/melihbirim/sieswi/releases/tag/v1.0.0
 [0.1.0]: https://github.com/melihbirim/sieswi/releases/tag/v0.1.0
