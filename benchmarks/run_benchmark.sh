@@ -68,14 +68,14 @@ echo
 
 # Define test queries (no LIMIT - return ALL matching rows)
 declare -a QUERIES=(
-  "status|completed"
   "country|UK"
+  "country|US"
   "total_minor|50000"
 )
 
 declare -a QUERY_LABELS=(
-  "WHERE status = 'completed'"
-  "WHERE country = 'UK'"  
+  "WHERE country = 'UK'"
+  "WHERE country = 'US'"
   "WHERE total_minor > 50000"
 )
 
@@ -115,65 +115,24 @@ for i in "${!QUERIES[@]}"; do
   echo "  (DuckDB loads entire file into memory)"
   echo
   
-  # 2. sieswi WITHOUT index
-  echo "[2] sieswi (no index):"
-  rm -f "${DATASET}.sidx"
-  /usr/bin/time -l ./sieswi "${QUERY}" > /tmp/bench_noindex_raw.csv 2> /tmp/bench_noindex_time.txt
-  grep -v "real\|user\|sys\|maximum\|peak" /tmp/bench_noindex_raw.csv > /tmp/bench_noindex.csv
+  # 2. sieswi (parallel processing)
+  echo "[2] sieswi (parallel processing):"
+  /usr/bin/time -l ./sieswi "${QUERY}" > /tmp/bench_sieswi_raw.csv 2> /tmp/bench_sieswi_time.txt
+  grep -v "real\|user\|sys\|maximum\|peak" /tmp/bench_sieswi_raw.csv > /tmp/bench_sieswi.csv
   
-  REAL_TIME=$(grep "real" /tmp/bench_noindex_time.txt | awk '{print $1}')
-  MEMORY=$(grep "maximum resident set size" /tmp/bench_noindex_time.txt | awk '{printf "%.1f MB", $1/1024/1024}')
-  NOINDEX_ROWS=$(($(wc -l < /tmp/bench_noindex.csv) - 1))
-  
-  echo "  Time: ${REAL_TIME}"
-  echo "  Memory: ${MEMORY}"
-  echo "  Rows returned: ${NOINDEX_ROWS}"
-  
-  # Compare with DuckDB
-  if [ "${NOINDEX_ROWS}" -eq "${DUCKDB_ROWS}" ]; then
-    echo "  ✓ Row count matches DuckDB"
-  else
-    echo "  ✗ WARNING: Row count mismatch! DuckDB=${DUCKDB_ROWS}, sieswi=${NOINDEX_ROWS}"
-  fi
-  echo
-  
-  # 3. sieswi WITH index
-  echo "[3] sieswi (with .sidx index):"
-  
-  # Build index
-  echo "  Building index..."
-  INDEX_START=$(date +%s)
-  ./sieswi index --skip-type-inference "${DATASET}" 2>&1 | grep "Index written"
-  INDEX_END=$(date +%s)
-  INDEX_TIME=$((INDEX_END - INDEX_START))
-  INDEX_SIZE=$(ls -lh "${DATASET}.sidx" | awk '{print $5}')
-  echo "  Index built in ${INDEX_TIME}s, size: ${INDEX_SIZE}"
-  echo
-  
-  # Run query with index
-  /usr/bin/time -l ./sieswi "${QUERY}" > /tmp/bench_index_raw.csv 2> /tmp/bench_index_time.txt
-  grep -v "real\|user\|sys\|maximum\|peak" /tmp/bench_index_raw.csv > /tmp/bench_index.csv
-  
-  REAL_TIME=$(grep "real" /tmp/bench_index_time.txt | awk '{print $1}')
-  MEMORY=$(grep "maximum resident set size" /tmp/bench_index_time.txt | awk '{printf "%.1f MB", $1/1024/1024}')
-  INDEX_ROWS=$(($(wc -l < /tmp/bench_index.csv) - 1))
+  REAL_TIME=$(grep "real" /tmp/bench_sieswi_time.txt | awk '{print $1}')
+  MEMORY=$(grep "maximum resident set size" /tmp/bench_sieswi_time.txt | awk '{printf "%.1f MB", $1/1024/1024}')
+  SIESWI_ROWS=$(($(wc -l < /tmp/bench_sieswi.csv) - 1))
   
   echo "  Time: ${REAL_TIME}"
   echo "  Memory: ${MEMORY}"
-  echo "  Rows returned: ${INDEX_ROWS}"
+  echo "  Rows returned: ${SIESWI_ROWS}"
   
   # Compare with DuckDB
-  if [ "${INDEX_ROWS}" -eq "${DUCKDB_ROWS}" ]; then
+  if [ "${SIESWI_ROWS}" -eq "${DUCKDB_ROWS}" ]; then
     echo "  ✓ Row count matches DuckDB"
   else
-    echo "  ✗ WARNING: Row count mismatch! DuckDB=${DUCKDB_ROWS}, sieswi=${INDEX_ROWS}"
-  fi
-  
-  # Verify both sieswi modes return same count
-  if [ "${NOINDEX_ROWS}" -eq "${INDEX_ROWS}" ]; then
-    echo "  ✓ Consistent with no-index mode"
-  else
-    echo "  ✗ WARNING: Index mode returns different count than no-index!"
+    echo "  ✗ WARNING: Row count mismatch! DuckDB=${DUCKDB_ROWS}, sieswi=${SIESWI_ROWS}"
   fi
   echo
   
@@ -187,31 +146,32 @@ echo "========================================="
 echo
 echo "Dataset: ${DATASET_SIZE} (${FILE_SIZE}, $((ROW_COUNT - 1)) rows)"
 echo
-echo "Index Build Performance:"
-echo "  Time: ~${INDEX_TIME}s"
-echo "  Index Size: ${INDEX_SIZE}"
-echo
 echo "Query Performance:"
-echo "  DuckDB:            Full file scan (100-200ms typical)"
-echo "  sieswi (no index): Full CSV scan (variable)"
-echo "  sieswi (index):    Index-accelerated (instant)"
+echo "  DuckDB:  Full file scan, loads into memory (100-200ms typical)"
+echo "  sieswi:  Parallel row-based processing (variable, 200-500ms typical)"
 echo
 echo "Memory Efficiency:"
-echo "  sieswi: 3-15 MB typical"
-echo "  DuckDB: 90-110 MB typical"
+echo "  sieswi:  3-15 MB typical (streaming with batches)"
+echo "  DuckDB:  90-110 MB typical (loads entire dataset)"
 echo
 echo "Data Validation:"
 echo "  ✓ All results validated against DuckDB (control)"
 echo "  ✓ No LIMIT clause - all matching rows returned"
-echo "  ✓ Row counts must match across all 3 modes"
+echo "  ✓ Row counts must match DuckDB exactly"
 echo
 echo "Key Takeaways:"
-echo "  ✓ SIDX index enables instant queries on full result sets"
+echo "  ✓ sieswi uses parallel row-based batching for correctness"
 echo "  ✓ 20-30x less memory than DuckDB"
-echo "  ✓ Index is tiny (KB vs GB of data)"
-echo "  ✓ Parallel index build is fast"
+echo "  ✓ Streaming architecture handles files larger than RAM"
 echo "  ✓ Results verified against DuckDB for correctness"
 echo
 echo "========================================="
 echo "Results saved to: ${RESULT_FILE}"
 echo "========================================="
+
+# Clean up temporary files
+echo
+echo "Cleaning up temporary files..."
+rm -f /tmp/bench_duckdb_raw.txt /tmp/bench_duckdb_time.txt /tmp/bench_duckdb.csv
+rm -f /tmp/bench_sieswi_raw.csv /tmp/bench_sieswi_time.txt /tmp/bench_sieswi.csv
+echo "✓ Cleanup complete"
