@@ -32,22 +32,11 @@ func tryParallelExecute(query sqlparser.Query, out io.Writer) (bool, error) {
 
 // Execute streams query results to the provided writer.
 func Execute(query sqlparser.Query, out io.Writer) error {
-	// Try to load and validate index
-	var index *sidx.Index
-	indexPath := query.FilePath + ".sidx"
-	if indexFile, err := os.Open(indexPath); err == nil {
-		if loadedIdx, err := sidx.ReadIndex(indexFile); err == nil {
-			// Validate index against CSV file
-			if err := sidx.ValidateIndex(loadedIdx, query.FilePath); err == nil {
-				index = loadedIdx
-			} else if os.Getenv("SIDX_DEBUG") == "1" {
-				fmt.Fprintf(os.Stderr, "[sidx] Index invalid: %v\n", err)
-			}
-		}
-		if err := indexFile.Close(); err != nil && os.Getenv("SIDX_DEBUG") == "1" {
-			fmt.Fprintf(os.Stderr, "[sidx] Failed to close index file: %v\n", err)
-		}
-	}
+	// NOTE: Index support temporarily disabled due to bugs
+	// The parallel processing is fast enough without index
+	// Index will be re-enabled after fixing row count bugs
+	var index *sidx.Index = nil
+	_ = sidx.Index{} // Keep import to avoid unused import error
 
 	// Check if reading from stdin
 	isStdin := query.FilePath == "-" || query.FilePath == "stdin"
