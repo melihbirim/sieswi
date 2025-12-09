@@ -46,6 +46,11 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 		return executeFromStdin(query, out)
 	}
 
+	// GROUP BY requires sequential processing (cannot parallelize aggregation easily)
+	if len(query.GroupBy) > 0 {
+		return executeGroupByFromFile(query, out)
+	}
+
 	// Try parallel execution for large files without index
 	// ParallelExecute returns nil if it should be skipped (file too small, small LIMIT, etc.)
 	// It returns a real error only if parallel processing failed
