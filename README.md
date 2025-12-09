@@ -12,11 +12,13 @@ sieswi "SELECT price_minor, country FROM 'data.csv' WHERE country = 'US' LIMIT 1
 
 ### Performance vs DuckDB
 
-| Dataset              | Query Type     | sieswi | DuckDB | Speedup           | Memory      |
-| -------------------- | -------------- | ------ | ------ | ----------------- | ----------- |
+| Dataset              | Query Type     | sieswi | DuckDB | Speedup           | Memory        |
+| -------------------- | -------------- | ------ | ------ | ----------------- | ------------- |
 | **1M rows (77MB)**   | WHERE clause   | 0.26s  | 1.08s  | **4.2x faster** ⚡ | 19MB vs 128MB |
 | **10M rows (768MB)** | WHERE clause   | 2.50s  | 9.28s  | **3.7x faster** ⚡ | 20MB vs 357MB |
-| **130M rows (10GB)** | WHERE clause   | ~32s   | ~120s  | **3.8x faster** ⚡ | ~25MB vs 4GB  |
+| **130M rows (10GB)** | WHERE clause   | 33.7s  | ~120s* | **~3.5x faster** ⚡ | 23MB vs ~4GB  |
+
+_*DuckDB 10GB test running in background_
 
 **Key Features:**
 
