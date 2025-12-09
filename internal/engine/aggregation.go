@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/melihbirim/sieswi/internal/sqlparser"
 )
@@ -22,12 +23,24 @@ type AggregateFunc struct {
 
 // Aggregator accumulates values for aggregation
 type Aggregator struct {
-	Count  int64
-	Sum    float64
-	Min    float64
-	Max    float64
-	HasMin bool
-	HasMax bool
+	RowCount int64           // COUNT(*) - number of rows in group
+	Sums     map[int]float64 // SUM/AVG per aggregate index
+	Counts   map[int]int64   // COUNT per aggregate index (for AVG)
+	Mins     map[int]float64 // MIN per aggregate index
+	Maxs     map[int]float64 // MAX per aggregate index
+	HasMin   map[int]bool    // Track if MIN has been set
+	HasMax   map[int]bool    // Track if MAX has been set
+}
+
+func newAggregator() *Aggregator {
+	return &Aggregator{
+		Sums:   make(map[int]float64),
+		Counts: make(map[int]int64),
+		Mins:   make(map[int]float64),
+		Maxs:   make(map[int]float64),
+		HasMin: make(map[int]bool),
+		HasMax: make(map[int]bool),
+	}
 }
 
 var aggregateFuncRe = regexp.MustCompile(`(?i)^(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*([*a-zA-Z0-9_]+)\s*\)$`)
@@ -52,7 +65,7 @@ func executeGroupBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 	// Parse SELECT columns to identify group columns and aggregate functions
 	var groupCols []string
 	var aggregates []*AggregateFunc
-	
+
 	if query.AllColumns {
 		return fmt.Errorf("SELECT * not supported with GROUP BY, please specify columns")
 	}
@@ -145,41 +158,43 @@ func executeGroupBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 		// Get or create aggregator for this group
 		agg, exists := groups[groupKey]
 		if !exists {
-			agg = &Aggregator{}
+			agg = newAggregator()
 			groups[groupKey] = agg
 			groupKeys = append(groupKeys, groupKey)
 		}
+
+		// Increment row count for this group (for COUNT(*))
+		agg.RowCount++
 
 		// Update aggregates
 		for i, aggFunc := range aggregates {
 			switch aggFunc.FuncName {
 			case "COUNT":
-				agg.Count++
+				// COUNT(*) already handled by RowCount
+				// COUNT(column) would be the same in our case
 			case "SUM", "AVG":
 				if aggregateIndices[i] >= 0 && aggregateIndices[i] < len(row) {
 					if val, err := strconv.ParseFloat(row[aggregateIndices[i]], 64); err == nil {
-						agg.Sum += val
-						agg.Count++
+						agg.Sums[i] += val
+						agg.Counts[i]++
 					}
 				}
 			case "MIN":
 				if aggregateIndices[i] >= 0 && aggregateIndices[i] < len(row) {
 					if val, err := strconv.ParseFloat(row[aggregateIndices[i]], 64); err == nil {
-						if !agg.HasMin || val < agg.Min {
-							agg.Min = val
-							agg.HasMin = true
+						if !agg.HasMin[i] || val < agg.Mins[i] {
+							agg.Mins[i] = val
+							agg.HasMin[i] = true
 						}
-						agg.Count++
 					}
 				}
 			case "MAX":
 				if aggregateIndices[i] >= 0 && aggregateIndices[i] < len(row) {
 					if val, err := strconv.ParseFloat(row[aggregateIndices[i]], 64); err == nil {
-						if !agg.HasMax || val > agg.Max {
-							agg.Max = val
-							agg.HasMax = true
+						if !agg.HasMax[i] || val > agg.Maxs[i] {
+							agg.Maxs[i] = val
+							agg.HasMax[i] = true
 						}
-						agg.Count++
 					}
 				}
 			}
@@ -210,28 +225,28 @@ func executeGroupBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 		outputRow := make([]string, 0, len(groupCols)+len(aggregates))
 		outputRow = append(outputRow, keyParts...)
 
-		for _, aggFunc := range aggregates {
+		for i, aggFunc := range aggregates {
 			var value string
 			switch aggFunc.FuncName {
 			case "COUNT":
-				value = fmt.Sprintf("%d", agg.Count)
+				value = fmt.Sprintf("%d", agg.RowCount)
 			case "SUM":
-				value = fmt.Sprintf("%.2f", agg.Sum)
+				value = fmt.Sprintf("%.2f", agg.Sums[i])
 			case "AVG":
-				if agg.Count > 0 {
-					value = fmt.Sprintf("%.2f", agg.Sum/float64(agg.Count))
+				if agg.Counts[i] > 0 {
+					value = fmt.Sprintf("%.2f", agg.Sums[i]/float64(agg.Counts[i]))
 				} else {
 					value = "0"
 				}
 			case "MIN":
-				if agg.HasMin {
-					value = fmt.Sprintf("%.2f", agg.Min)
+				if agg.HasMin[i] {
+					value = fmt.Sprintf("%.2f", agg.Mins[i])
 				} else {
 					value = ""
 				}
 			case "MAX":
-				if agg.HasMax {
-					value = fmt.Sprintf("%.2f", agg.Max)
+				if agg.HasMax[i] {
+					value = fmt.Sprintf("%.2f", agg.Maxs[i])
 				} else {
 					value = ""
 				}
