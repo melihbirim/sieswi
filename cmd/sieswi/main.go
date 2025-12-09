@@ -32,18 +32,20 @@ func main() {
 		// Parse flags for index command
 		indexFlags := flag.NewFlagSet("index", flag.ExitOnError)
 		skipTypeInference := indexFlags.Bool("skip-type-inference", false, "Skip type inference, assume all columns are strings (faster)")
+		blockSizeKB := indexFlags.Int("block-size", 32, "Block size in KB (default: 32)")
 		if err := indexFlags.Parse(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "parse flags: %v\n", err)
 			os.Exit(1)
 		}
 
 		if indexFlags.NArg() < 1 {
-			fmt.Fprintln(os.Stderr, "usage: sieswi index [--skip-type-inference] <csvfile>")
+			fmt.Fprintln(os.Stderr, "usage: sieswi index [--skip-type-inference] [--block-size KB] <csvfile>")
 			os.Exit(1)
 		}
 
 		csvPath := indexFlags.Arg(0)
-		if err := buildIndex(csvPath, *skipTypeInference); err != nil {
+		blockSize := uint32(*blockSizeKB * 1024)
+		if err := buildIndex(csvPath, *skipTypeInference, blockSize); err != nil {
 			fmt.Fprintln(os.Stderr, "index error:", err)
 			os.Exit(1)
 		}
@@ -75,10 +77,10 @@ func main() {
 	}
 }
 
-func buildIndex(csvPath string, skipTypeInference bool) error {
-	fmt.Fprintf(os.Stderr, "Building index for %s...\n", csvPath)
+func buildIndex(csvPath string, skipTypeInference bool, blockSize uint32) error {
+	fmt.Fprintf(os.Stderr, "Building index for %s (block size: %d KB)...\n", csvPath, blockSize/1024)
 
-	builder := sidx.NewBuilder(sidx.BlockSize)
+	builder := sidx.NewBuilder(blockSize)
 	builder.SetSkipTypeInference(skipTypeInference)
 	index, err := builder.BuildFromFile(csvPath)
 	if err != nil {

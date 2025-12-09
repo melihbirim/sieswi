@@ -34,7 +34,7 @@ import (
 const (
 	Magic      = "SIDX"
 	Version    = 3     // Bumped to add EmptyCount to ColumnStats
-	BlockSize  = 65536 // 64K rows per block
+	BlockSize  = 32768 // 32K rows per block (optimized based on benchmarks)
 	HeaderSize = 32    // Base size without column dictionary
 )
 
