@@ -33,19 +33,26 @@ func main() {
 		indexFlags := flag.NewFlagSet("index", flag.ExitOnError)
 		skipTypeInference := indexFlags.Bool("skip-type-inference", false, "Skip type inference, assume all columns are strings (faster)")
 		blockSizeKB := indexFlags.Int("block-size", 32, "Block size in KB (default: 32)")
+		parallel := indexFlags.Bool("parallel", true, "Use parallel index building (default: true)")
+		sequential := indexFlags.Bool("sequential", false, "Force sequential processing (disable parallel)")
+		workers := indexFlags.Int("workers", 0, "Number of parallel workers (default: CPU count)")
 		if err := indexFlags.Parse(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "parse flags: %v\n", err)
 			os.Exit(1)
 		}
 
 		if indexFlags.NArg() < 1 {
-			fmt.Fprintln(os.Stderr, "usage: sieswi index [--skip-type-inference] [--block-size KB] <csvfile>")
+			fmt.Fprintln(os.Stderr, "usage: sieswi index [--skip-type-inference] [--block-size KB] [--sequential] [--workers N] <csvfile>")
 			os.Exit(1)
 		}
 
 		csvPath := indexFlags.Arg(0)
 		blockSize := uint32(*blockSizeKB * 1024)
-		if err := buildIndex(csvPath, *skipTypeInference, blockSize); err != nil {
+
+		// If --sequential is set, disable parallel
+		useParallel := *parallel && !*sequential
+
+		if err := buildIndex(csvPath, *skipTypeInference, blockSize, useParallel, *workers); err != nil {
 			fmt.Fprintln(os.Stderr, "index error:", err)
 			os.Exit(1)
 		}
@@ -77,12 +84,22 @@ func main() {
 	}
 }
 
-func buildIndex(csvPath string, skipTypeInference bool, blockSize uint32) error {
-	fmt.Fprintf(os.Stderr, "Building index for %s (block size: %d KB)...\n", csvPath, blockSize/1024)
+func buildIndex(csvPath string, skipTypeInference bool, blockSize uint32, parallel bool, workers int) error {
+	var index *sidx.Index
+	var err error
 
-	builder := sidx.NewBuilder(blockSize)
-	builder.SetSkipTypeInference(skipTypeInference)
-	index, err := builder.BuildFromFile(csvPath)
+	if parallel {
+		fmt.Fprintf(os.Stderr, "Building index for %s (block size: %d KB, parallel mode)...\n", csvPath, blockSize/1024)
+		builder := sidx.NewParallelBuilder(blockSize, workers)
+		builder.SetSkipTypeInference(skipTypeInference)
+		index, err = builder.BuildFromFile(csvPath)
+	} else {
+		fmt.Fprintf(os.Stderr, "Building index for %s (block size: %d KB)...\n", csvPath, blockSize/1024)
+		builder := sidx.NewBuilder(blockSize)
+		builder.SetSkipTypeInference(skipTypeInference)
+		index, err = builder.BuildFromFile(csvPath)
+	}
+
 	if err != nil {
 		return fmt.Errorf("build index: %w", err)
 	}

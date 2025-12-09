@@ -1,49 +1,88 @@
 # Benchmarks
 
-Compare `sieswi` against DuckDB on shared CSV datasets. Every time a feature ships, re-run the suite to track time-to-first-row, total runtime, CPU, and memory deltas.
+This directory contains the benchmarking script and results for comparing sieswi's performance against DuckDB.
+
+## Quick Start
+
+Run the consolidated benchmark:
+
+```bash
+# Test with 10M rows (768MB file)
+bash benchmarks/run_benchmark.sh 10m
+
+# Test with 10GB file (130M rows)
+bash benchmarks/run_benchmark.sh 10gb
+```
+
+## What It Tests
+
+The benchmark script (`run_benchmark.sh`) runs 3 test queries comparing:
+
+1. **sieswi without index** - Full CSV scan
+2. **sieswi with SIDX index** - Index-accelerated queries  
+3. **DuckDB** - Industry standard comparison
+
+### Test Queries
+
+1. `WHERE country = 'UK'` - Low selectivity string filter
+2. `WHERE country = 'US'` - Low selectivity string filter
+3. `WHERE total_minor > 15000` - Numeric range filter
+
+## Results
+
+Results are saved to `benchmarks/results/benchmark_{size}_{timestamp}.txt`
+
+### Key Metrics
+
+- **Query Time**: Real wall-clock time for query execution
+- **Memory Usage**: Peak resident set size during execution
+- **Index Size**: Size of the .sidx index file on disk
+- **Index Build Time**: Time to build the parallel SIDX index
+
+### Expected Performance
+
+**10M rows (768MB):**
+- Index build: ~1s
+- Index size: ~7KB
+- Query time (no index): 0.00-0.25s
+- Query time (with index): <0.01s (instant)
+- DuckDB query time: 0.11-0.20s
+- sieswi memory: 4-6 MB
+- DuckDB memory: 120+ MB
+
+**10GB (130M rows):**
+- Index build: ~9s
+- Index size: ~7KB
+- Query time (with index): <0.01s (instant)
+- DuckDB query time: 0.1-0.2s
+- sieswi memory: 5-15 MB
+- DuckDB memory: 100+ MB
+
+### Key Takeaways
+
+✅ **Speed**: sieswi with index is instant (<10ms) vs DuckDB (100-200ms)  
+✅ **Memory**: sieswi uses 20-30x less memory than DuckDB  
+✅ **Index Size**: Tiny indexes (KB) for multi-GB files  
+✅ **Scalability**: Handles 10GB+ files with minimal memory
 
 ## Prerequisites
 
-- DuckDB CLI available in `PATH` (e.g. `brew install duckdb`).
-- Synthetic dataset (`fixtures/ecommerce_1m.csv`). Generate with:
+- DuckDB CLI available in PATH: `brew install duckdb`
+- Test datasets:
+  - `fixtures/ecommerce_10m.csv` (10M rows, 768MB)
+  - `fixtures/ecommerce_10gb.csv` (130M rows, 9.7GB)
+
+Generate test data if needed:
 
 ```bash
-./scripts/gen_ecommerce_fixture.sh
+go run cmd/gencsv/main.go -rows 10000000 -out fixtures/ecommerce_10m.csv
+go run cmd/gencsv/main.go -rows 130000000 -out fixtures/ecommerce_10gb.csv
 ```
 
-## Running the Benchmarks
+## Optimization History
 
-```bash
-./benchmarks/run_bench.sh [relative/path/to/dataset.csv]
-```
-
-The script:
-
-1. Builds `sieswi` into `./bin/sieswi`.
-2. Runs a set of representative queries (country equality, numeric range, high-selectivity) with both engines.
-3. Uses `/usr/bin/time` to capture wall time, CPU, and peak memory.
-4. Writes results to `benchmarks/results/latest.txt`.
-
-Example snippet from the results file:
-
-```bash
-## sieswi - country_eq
-        0.07 real         0.00 user         0.00 sys
-             4587520  maximum resident set size
-
-## duckdb - country_eq
-        0.20 real         0.12 user         0.04 sys
-            92127232  maximum resident set size
-```
-
-## Latest Results
-
-See `benchmarks/results/summary.md` for a formatted analysis of the most recent run.
-
-**Baseline (Phase 1):** sieswi is 2-3x faster and uses ~95% less memory than DuckDB on simple queries.
-
-## Notes
-
-- Queries use Phase 1 syntax only (single predicates: `=`, `>`, `<`, etc.)
-- BETWEEN syntax not supported yet (use `>` or `<` instead)
-- Expand the query list as new features (indexes, AND/OR, etc.) are introduced
+See `index_build_baseline.md` for detailed optimization journey:
+- Tier 1: Block size optimization (32KB blocks)
+- Tier 2: Parallel index building (5.7x speedup)
+- Worker scaling analysis (1-12 workers)
+- 10GB validation tests
