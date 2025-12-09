@@ -12,16 +12,16 @@ sieswi "SELECT price_minor, country FROM 'data.csv' WHERE country = 'US' LIMIT 1
 
 ### Performance vs DuckDB
 
-| Dataset              | Query Type          | sieswi | DuckDB | Comparison        |
-| -------------------- | ------------------- | ------ | ------ | ----------------- |
-| **1M rows (77MB)**   | Selective (indexed) | 12ms   | 1050ms | **85x faster** ⚡ |
-| **10M rows (768MB)** | Full scan           | 770ms  | 1050ms | **27% faster** ⚡ |
-| **130M rows (10GB)** | Full scan           | 8.43s  | 7.41s  | 14% slower 🎯     |
+| Dataset              | Query Type     | sieswi | DuckDB | Comparison        |
+| -------------------- | -------------- | ------ | ------ | ----------------- |
+| **1M rows (77MB)**   | WHERE clause   | 260ms  | 250ms  | **Similar** ⚡    |
+| **10M rows (768MB)** | Full scan      | 770ms  | 1050ms | **27% faster** ⚡ |
+| **130M rows (10GB)** | Full scan      | 8.43s  | 7.41s  | 14% slower 🎯     |
 
 **Key Features:**
 
-- ⚡ **Parallel processing** - Auto-detects large files, uses all CPU cores
-- 🎯 **Smart indexing** - `.sidx` sorted indexes for 85x speedup on selective queries
+- ⚡ **Parallel processing** - Row-based batching, uses all CPU cores for large files
+- 🎯 **Data accuracy** - 100% validated against DuckDB, exact row counts
 - 🚀 **Streaming first** - Results appear instantly for small queries
 - 📦 **8MB binary** - Pure Go stdlib, no dependencies
 - 🔧 **Production-ready** - RFC 4180 CSV compliant, robust edge case handling
@@ -102,7 +102,7 @@ See [SQL_SUPPORT.md](SQL_SUPPORT.md) for full details.
 
 - 📊 Log analysis without loading into a database
 - ⚡ Quick data quality checks
-- 🎯 Selective queries with `.sidx` indexes (100x+ speedup)
+- 🎯 Multi-core parallel processing for large files
 
 **Not ideal for:**
 
@@ -114,30 +114,29 @@ See [SQL_SUPPORT.md](SQL_SUPPORT.md) for full details.
 
 **Adaptive Execution Strategy:**
 
-1. **Indexed queries** (fastest): Uses `.sidx` sorted index for instant seeks
-2. **Parallel processing**: Large files (>10MB) use multi-core chunk processing
-3. **Sequential streaming**: Small files or LIMIT queries stream row-by-row
+1. **Parallel processing**: Large files (>10MB) use multi-core row-based batching
+2. **Sequential streaming**: Small files or LIMIT queries stream row-by-row
 
 ```
-                        ┌─ Has .sidx? ─→ Indexed Seek (12ms, 85x faster)
-Input CSV → Parse Header┼─ File >10MB? ─→ Parallel Chunks (0.77s, 12 workers)
-                        └─ Otherwise ──→ Sequential Stream (instant results)
+Input CSV → Parse Header─┬─ File >10MB? ─→ Parallel Batching (10K rows/batch, N workers)
+                         └─ Otherwise ──→ Sequential Stream (instant results)
 ```
 
-**Parallel Processing:**
+**Parallel Processing (v1.0.1):**
 
-- Splits file into 4MB chunks
-- Uses `runtime.GOMAXPROCS(0)` workers (all CPU cores)
+- Row-based batching architecture (10,000 rows per batch)
+- 1 reader goroutine + N worker goroutines (`runtime.GOMAXPROCS(0)` cores)
 - RFC 4180 compliant CSV parsing with escaped quotes
+- 100% data accuracy validated against DuckDB
 - Smart LIMIT handling (parallel for ≥10K rows, sequential for small limits)
 
 ## Roadmap
 
-- **Phase 1 (✅ Done)**: Baseline streaming engine (current)
-- **Phase 2**: CSV linter with strict RFC 4180 validation
-- **Phase 3**: `.sidx` sorted index for 100x speedup on selective queries
-- **Phase 4**: AND predicates, IN clauses, boolean expressions
-- **Phase 5**: LIKE, BETWEEN, IS NULL
+- **Phase 1 (✅ Done)**: Parallel processing with data accuracy validation
+- **Phase 2 (Next)**: Aggregations (GROUP BY, SUM, COUNT, AVG, etc.)
+- **Phase 3**: Advanced operators (IN, LIKE, BETWEEN, IS NULL)
+- **Phase 4**: Sorted indexes (`.sidx`) for selective queries
+- **Phase 5**: CSV linter with strict RFC 4180 validation
 - **Phase 6**: Natural language to SQL
 
 See [PLAN.md](PLAN.md) for detailed roadmap.
@@ -156,9 +155,6 @@ go run ./cmd/gencsv -rows 1000000 -out fixtures/ecommerce_1m.csv
 # Generate larger datasets
 ./gencsv -rows 10000000 -out fixtures/ecommerce_10m.csv   # 10M rows (~768MB)
 ./gencsv -rows 130000000 -out fixtures/ecommerce_10gb.csv  # 130M rows (~10GB)
-
-# Generate sorted data (for .sidx index testing)
-./gencsv -rows 1000000 -sorted -out fixtures/sorted_1m.csv
 
 # Quick scripts for common fixtures
 ./scripts/gen_ecommerce_fixture.sh      # 1M rows standard test data
