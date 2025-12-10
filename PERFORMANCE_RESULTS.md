@@ -25,10 +25,16 @@
 ```sql
 SELECT * FROM ecommerce_10gb.csv ORDER BY total_minor LIMIT 100
 ```
-- **Time**: 51.69s
-- **Memory**: 11.8 MB peak
-- **Performance**: ~2.5M rows/sec throughput
-- **Notes**: Heap-based top-K keeps memory minimal
+
+| Engine | Time | Memory | Slowdown vs DuckDB |
+|--------|------|--------|--------------------|
+| **DuckDB** | 8.58s | 252 MB | 1.0x (baseline) |
+| **sieswi** | 51.69s | 11.8 MB | **6.0x slower** |
+
+**Notes**: 
+- sieswi uses heap-based top-K (minimal memory)
+- DuckDB uses 21x more memory but 6x faster
+- sieswi correctness: ✅ verified identical results
 
 ### Test 2: WHERE + ORDER BY + LIMIT (Compiled WHERE)
 ```sql
@@ -36,27 +42,41 @@ SELECT * FROM ecommerce_10gb.csv
 WHERE country = 'UK' 
 ORDER BY total_minor LIMIT 100
 ```
-- **Time**: 39.54s (23% faster than without WHERE!)
-- **Memory**: 10.9 MB peak
-- **Performance**: ~3.3M rows/sec throughput
-- **Notes**: Compiled WHERE evaluates directly on row slices (no map allocation)
+
+| Engine | Time | Memory | Slowdown vs DuckDB |
+|--------|------|--------|--------------------|
+| **DuckDB** | 9.85s | 302 MB | 1.0x (baseline) |
+| **sieswi** | 39.54s | 10.9 MB | **4.0x slower** |
+
+**Notes**: 
+- Compiled WHERE gives sieswi 23% speedup (vs 51.69s without WHERE)
+- sieswi uses 28x less memory than DuckDB
+- Direct row slice evaluation eliminates map allocation hotspot
 
 ### Test 3: Multi-Column ORDER BY with LIMIT
 ```sql
 SELECT * FROM ecommerce_10gb.csv 
 ORDER BY country, total_minor DESC LIMIT 100
 ```
-- **Time**: 58.13s
-- **Memory**: 14.3 MB peak
-- **Performance**: ~2.2M rows/sec throughput
-- **Notes**: 3-state type detection + skip ToLower for numeric column
+
+| Engine | Time | Memory | Slowdown vs DuckDB |
+|--------|------|--------|--------------------|
+| **DuckDB** | 9.22s | 286 MB | 1.0x (baseline) |
+| **sieswi** | 58.13s | 14.3 MB | **6.3x slower** |
+
+**Notes**: 
+- 3-state type detection + skip ToLower for numeric columns
+- sieswi uses 20x less memory
+- Multi-column sort more expensive than single column
 
 ## Key Achievements
 
-✅ **Memory Efficiency**: <15 MB for 130M row queries with LIMIT
+✅ **Memory Efficiency**: 20-28x less memory than DuckDB (<15 MB vs 250-300 MB)
 ✅ **Compiled WHERE**: 23% faster with filtering (eliminates map allocation)
 ✅ **Type Detection**: 3-state approach prevents re-parsing numeric columns
+✅ **Performance**: **4-6x slower than DuckDB** (within acceptable range for streaming engine)
 ✅ **All Tests Passing**: 15/15 ORDER BY tests + 19/19 total engine tests
+✅ **Correctness**: 100% match with DuckDB results
 
 ## Optimization Impact Summary
 
@@ -81,6 +101,16 @@ ORDER BY country, total_minor DESC LIMIT 100
 All optimizations verified against:
 - 15 ORDER BY unit tests (numeric, string, multi-column, DESC, LIMIT, WHERE)
 - 19 total engine tests (GROUP BY, boolean expressions)
-- Manual comparison with DuckDB results (100% match)
+- **DuckDB comparison**: 100% identical results on 130M row dataset
+
+## Performance vs DuckDB Summary
+
+| Metric | sieswi | DuckDB | Ratio |
+|--------|--------|--------|-------|
+| **Speed (avg)** | 49.8s | 9.2s | **4-6x slower** |
+| **Memory (avg)** | 12.3 MB | 280 MB | **23x less** |
+| **Trade-off** | Streaming, low memory | In-memory, parallel | Different goals |
+
+**Conclusion**: sieswi achieves excellent memory efficiency while staying within 4-6x of DuckDB's speed - a reasonable trade-off for a streaming CSV engine. The compiled WHERE clause optimization (Hotspot Fix #1) provides significant benefit, making filtered queries relatively faster.
 
 **Status**: Ready for merge to main ✅
