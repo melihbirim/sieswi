@@ -79,3 +79,44 @@ func TestPredicateCompare(t *testing.T) {
 		t.Fatalf("did not expect predicate to match")
 	}
 }
+
+func TestParseGroupBy(t *testing.T) {
+	q, err := Parse("SELECT country, COUNT(*) FROM data.csv GROUP BY country")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(q.GroupBy) != 1 || q.GroupBy[0] != "country" {
+		t.Fatalf("expected GROUP BY [country], got %#v", q.GroupBy)
+	}
+
+	if len(q.Columns) != 2 || q.Columns[0] != "country" || q.Columns[1] != "COUNT(*)" {
+		t.Fatalf("unexpected columns: %#v", q.Columns)
+	}
+}
+
+func TestParseGroupByMultiple(t *testing.T) {
+	q, err := Parse("SELECT country, status, COUNT(*) FROM data.csv GROUP BY country, status")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(q.GroupBy) != 2 || q.GroupBy[0] != "country" || q.GroupBy[1] != "status" {
+		t.Fatalf("expected GROUP BY [country, status], got %#v", q.GroupBy)
+	}
+}
+
+func TestParseGroupByWithWhere(t *testing.T) {
+	q, err := Parse("SELECT country, COUNT(*) FROM data.csv WHERE total_minor > 1000 GROUP BY country")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(q.GroupBy) != 1 || q.GroupBy[0] != "country" {
+		t.Fatalf("expected GROUP BY [country], got %#v", q.GroupBy)
+	}
+
+	if q.Where == nil {
+		t.Fatalf("expected WHERE expression")
+	}
+}
