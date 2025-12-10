@@ -46,6 +46,11 @@ func Execute(query sqlparser.Query, out io.Writer) error {
 		return executeFromStdin(query, out)
 	}
 
+	// ORDER BY requires loading all rows into memory for sorting
+	if len(query.OrderBy) > 0 {
+		return executeOrderByFromFile(query, out)
+	}
+
 	// GROUP BY requires sequential processing (cannot parallelize aggregation easily)
 	if len(query.GroupBy) > 0 {
 		return executeGroupByFromFile(query, out)

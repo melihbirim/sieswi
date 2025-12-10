@@ -14,7 +14,14 @@ type Query struct {
 	FilePath   string
 	Where      Expression
 	GroupBy    []string // Columns to group by
+	OrderBy    []OrderByColumn // Columns to sort by
 	Limit      int
+}
+
+// OrderByColumn represents a column in ORDER BY clause
+type OrderByColumn struct {
+	Column     string
+	Descending bool // true for DESC, false for ASC (default)
 }
 
 // Expression represents a boolean expression in the WHERE clause
@@ -54,7 +61,7 @@ func (Comparison) isExpression() {}
 type Predicate = Comparison
 
 var (
-	queryRe = regexp.MustCompile(`(?i)^\s*select\s+(.+?)\s+from\s+((?:'[^']+'|"[^"]+"|\S+))(?:\s+where\s+(.+?))?(?:\s+group\s+by\s+(.+?))?(?:\s+limit\s+(\d+))?\s*$`)
+	queryRe = regexp.MustCompile(`(?i)^\s*select\s+(.+?)\s+from\s+((?:'[^']+'|"[^"]+"|\S+))(?:\s+where\s+(.+?))?(?:\s+group\s+by\s+(.+?))?(?:\s+order\s+by\s+(.+?))?(?:\s+limit\s+(\d+))?\s*$`)
 
 	predicateRe = regexp.MustCompile(`(?i)^\s*([a-zA-Z0-9_]+)\s*(=|!=|>=|<=|>|<)\s*(.+?)\s*$`)
 )
@@ -75,7 +82,8 @@ func Parse(input string) (Query, error) {
 	filePart := trimQuotes(strings.TrimSpace(matches[2]))
 	wherePart := strings.TrimSpace(matches[3])
 	groupByPart := strings.TrimSpace(matches[4])
-	limitPart := strings.TrimSpace(matches[5])
+	orderByPart := strings.TrimSpace(matches[5])
+	limitPart := strings.TrimSpace(matches[6])
 
 	q := Query{FilePath: filePart, Limit: -1}
 
@@ -112,6 +120,39 @@ func Parse(input string) (Query, error) {
 				return Query{}, fmt.Errorf("empty column name in GROUP BY clause")
 			}
 			q.GroupBy = append(q.GroupBy, cleaned)
+		}
+	}
+
+	if orderByPart != "" {
+		cols := strings.Split(orderByPart, ",")
+		for _, col := range cols {
+			cleaned := strings.TrimSpace(col)
+			if cleaned == "" {
+				return Query{}, fmt.Errorf("empty column name in ORDER BY clause")
+			}
+			
+			// Check for DESC/ASC suffix
+			descending := false
+			parts := strings.Fields(cleaned)
+			if len(parts) == 2 {
+				direction := strings.ToUpper(parts[1])
+				if direction == "DESC" {
+					descending = true
+					cleaned = parts[0]
+				} else if direction == "ASC" {
+					descending = false
+					cleaned = parts[0]
+				} else {
+					return Query{}, fmt.Errorf("invalid ORDER BY direction: %s (expected ASC or DESC)", parts[1])
+				}
+			} else if len(parts) > 2 {
+				return Query{}, fmt.Errorf("invalid ORDER BY column: %s", cleaned)
+			}
+			
+			q.OrderBy = append(q.OrderBy, OrderByColumn{
+				Column:     cleaned,
+				Descending: descending,
+			})
 		}
 	}
 
