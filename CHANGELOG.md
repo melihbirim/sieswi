@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2025-12-10
+
+### Added
+- **GROUP BY aggregations** - Full support for aggregation queries
+  - Aggregate functions: `COUNT(*)`, `COUNT(column)`, `SUM`, `AVG`, `MIN`, `MAX`
+  - Single and multiple column grouping
+  - Multiple aggregates in single query
+  - WHERE clause integration (filter before aggregation)
+  - LIMIT support for aggregated results
+- **Hash-based aggregation engine**
+  - Memory-efficient sequential processing
+  - Per-aggregate tracking for correct multi-aggregate queries
+  - Null-byte separated group keys for multi-column GROUP BY
+- **Comprehensive test coverage**
+  - 11 integration tests covering all aggregate functions
+  - Edge case handling (empty results, invalid columns)
+  - 100% validation against DuckDB
+
+### Performance
+- GROUP BY on 1M rows: 0.50-0.86s (10-11MB memory)
+- GROUP BY on 10M rows: 2.91-4.31s (10-11MB memory)
+- 18-19x less memory than DuckDB (10MB vs 190MB)
+- Linear scaling: 10x data = ~10x time
+- DuckDB faster (4-6x) due to vectorized execution, but sieswi more memory efficient
+
+### Changed
+- Parser extended with `GROUP BY` clause support
+- Engine routing for GROUP BY queries
+- Error messages for unsupported `SELECT *` with GROUP BY
+
 ## [1.0.1] - 2025-12-09
 
 ### Fixed
@@ -95,7 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 25x less memory usage
 - 50x smaller binary size
 
-[Unreleased]: https://github.com/melihbirim/sieswi/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/melihbirim/sieswi/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/melihbirim/sieswi/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/melihbirim/sieswi/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/melihbirim/sieswi/releases/tag/v1.0.0
 [0.1.0]: https://github.com/melihbirim/sieswi/releases/tag/v0.1.0

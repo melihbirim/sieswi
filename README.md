@@ -12,17 +12,29 @@ sieswi "SELECT price_minor, country FROM 'data.csv' WHERE country = 'US' LIMIT 1
 
 ### Performance vs DuckDB
 
-| Dataset              | Query Type     | sieswi | DuckDB  | Speedup            | Memory         |
-| -------------------- | -------------- | ------ | ------- | ------------------ | -------------- |
-| **1M rows (77MB)**   | WHERE clause   | 0.26s  | 1.08s   | **4.2x faster** ⚡  | 19MB vs 128MB  |
-| **10M rows (768MB)** | WHERE clause   | 2.50s  | 9.28s   | **3.7x faster** ⚡  | 20MB vs 357MB  |
-| **130M rows (10GB)** | WHERE clause   | 33.7s  | 120.6s  | **3.6x faster** ⚡  | 23MB vs 1.5GB  |
+**WHERE Clause (Parallel Filtering):**
+
+| Dataset              | sieswi | DuckDB  | Speedup            | Memory         |
+| -------------------- | ------ | ------- | ------------------ | -------------- |
+| **1M rows (77MB)**   | 0.26s  | 1.08s   | **4.2x faster** ⚡  | 19MB vs 128MB  |
+| **10M rows (768MB)** | 2.50s  | 9.28s   | **3.7x faster** ⚡  | 20MB vs 357MB  |
+| **130M rows (10GB)** | 33.7s  | 120.6s  | **3.6x faster** ⚡  | 23MB vs 1.5GB  |
+
+**GROUP BY Aggregations:**
+
+| Dataset            | Query                  | sieswi | DuckDB | Winner           | Memory        |
+| ------------------ | ---------------------- | ------ | ------ | ---------------- | ------------- |
+| **1M rows**        | COUNT(*)               | 0.86s  | 0.28s  | DuckDB 3.1x      | 10MB vs 113MB |
+| **1M rows**        | COUNT/SUM/AVG/MIN/MAX  | 0.50s  | 0.32s  | DuckDB 1.6x      | 11MB vs 114MB |
+| **10M rows**       | COUNT(*)               | 2.91s  | 0.72s  | DuckDB 4.0x      | 10MB vs 190MB |
+| **10M rows**       | COUNT/SUM/AVG/MIN/MAX  | 4.31s  | 0.74s  | DuckDB 5.8x      | 11MB vs 190MB |
 
 **Key Features:**
 
 - ⚡ **Parallel processing** - Row-based batching, uses all CPU cores (12 on M2 Pro)
-- 🎯 **Memory efficient** - 6-18x less memory than DuckDB (streaming architecture)
+- 🎯 **Memory efficient** - 6-19x less memory than DuckDB (streaming architecture)
 - 💯 **Data accuracy** - 100% validated against DuckDB, exact row counts
+- 📊 **GROUP BY aggregations** - COUNT, SUM, AVG, MIN, MAX with sequential hash aggregation
 - 🚀 **Streaming first** - Results appear instantly for small queries
 - 📦 **8MB binary** - Pure Go stdlib, no dependencies
 - 🔧 **Production-ready** - RFC 4180 CSV compliant, robust edge case handling
@@ -49,6 +61,9 @@ go build -o sieswi ./cmd/sieswi
 # From command line
 sieswi "SELECT * FROM 'data.csv' WHERE status = 'ACTIVE' LIMIT 10"
 
+# Aggregations
+sieswi "SELECT country, COUNT(*), AVG(amount) FROM 'sales.csv' GROUP BY country"
+
 # From stdin (pipes!)
 cat data.csv | sieswi "SELECT name, age FROM '-' WHERE age > 25"
 
@@ -56,22 +71,25 @@ cat data.csv | sieswi "SELECT name, age FROM '-' WHERE age > 25"
 sieswi "SELECT * FROM 'orders.csv' WHERE country = 'US'" > us_orders.csv
 ```
 
-## SQL Support (Phase 1 - Baseline)
+## SQL Support
 
-sieswi supports the subset of SQL that makes sense for streaming:
+sieswi supports the subset of SQL that makes sense for CSV processing:
 
 ✅ **Supported:**
 
 - `SELECT` with column projection (`SELECT name, age FROM ...`) or `SELECT *`
 - `WHERE` comparisons: `=`, `!=`, `>`, `>=`, `<`, `<=`
 - Boolean expressions: `AND`, `OR`, `NOT`, parentheses for grouping
+- `GROUP BY` with aggregations: `COUNT(*)`, `COUNT(column)`, `SUM`, `AVG`, `MIN`, `MAX`
 - `LIMIT` for result capping
 - Numeric coercion (`"123"` == `123`) and case-insensitive columns
 
-❌ **Not Supported (by design):**
+❌ **Not Yet Supported:**
 
-- `ORDER BY`, `GROUP BY`, `JOIN` – defeats streaming model
-- `IN`, `LIKE`, `BETWEEN`, `IS NULL` – planned features
+- `ORDER BY` (planned for Phase 4)
+- `JOIN` operations (planned for Phase 3)
+- `IN`, `LIKE`, `BETWEEN`, `IS NULL` (planned for Phase 3)
+- `HAVING` clause (planned)
 
 See [SQL_SUPPORT.md](SQL_SUPPORT.md) for full details.
 
@@ -104,22 +122,25 @@ See [SQL_SUPPORT.md](SQL_SUPPORT.md) for full details.
 - 📊 Log analysis without loading into a database
 - ⚡ Quick data quality checks
 - 🎯 Multi-core parallel processing for large files
+- 📈 Simple aggregations and metrics (counts, sums, averages)
 
 **Not ideal for:**
 
-- Complex aggregations (use DuckDB/SQLite)
-- JOINs across multiple files
-- Analytics requiring ORDER BY
+- Complex multi-table JOINs
+- Analytics requiring ORDER BY (coming soon)
+- Real-time databases (use PostgreSQL/DuckDB)
 
 ## How It Works
 
 **Adaptive Execution Strategy:**
 
-1. **Parallel processing**: Large files (>10MB) use multi-core row-based batching
-2. **Sequential streaming**: Small files or LIMIT queries stream row-by-row
+1. **Parallel processing**: Large files (>10MB) use multi-core row-based batching for WHERE queries
+2. **Sequential aggregation**: GROUP BY uses hash-based aggregation (memory-efficient)
+3. **Sequential streaming**: Small files or LIMIT queries stream row-by-row
 
 ```
-Input CSV → Parse Header─┬─ File >10MB? ─→ Parallel Batching (10K rows/batch, N workers)
+Input CSV → Parse Header─┬─ GROUP BY? ───→ Sequential Hash Aggregation
+                         ├─ File >10MB? ─→ Parallel Batching (10K rows/batch, N workers)
                          └─ Otherwise ──→ Sequential Stream (instant results)
 ```
 
@@ -134,11 +155,11 @@ Input CSV → Parse Header─┬─ File >10MB? ─→ Parallel Batching (10K ro
 ## Roadmap
 
 - **Phase 1 (✅ Done)**: Parallel processing with data accuracy validation
-- **Phase 2 (Next)**: Aggregations (GROUP BY, SUM, COUNT, AVG, etc.)
-- **Phase 3**: Advanced operators (IN, LIKE, BETWEEN, IS NULL)
-- **Phase 4**: Sorted indexes (`.sidx`) for selective queries
-- **Phase 5**: CSV linter with strict RFC 4180 validation
-- **Phase 6**: Natural language to SQL
+- **Phase 2 (✅ Done)**: Aggregations (GROUP BY, COUNT, SUM, AVG, MIN, MAX)
+- **Phase 3 (Next)**: JOIN operations and advanced operators (IN, LIKE, BETWEEN, IS NULL)
+- **Phase 4**: ORDER BY with external sort
+- **Phase 5**: Sorted indexes (`.sidx`) for selective queries
+- **Phase 6**: CSV linter with strict RFC 4180 validation
 
 See [PLAN.md](PLAN.md) for detailed roadmap.
 
