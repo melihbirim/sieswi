@@ -19,10 +19,171 @@ type rowWithKey struct {
 	sortKeys []sortKey
 }
 
+// columnType represents the detected type of a column
+type columnType int
+
+const (
+	columnUnknown columnType = iota
+	columnNumeric
+	columnString
+)
+
+// compileWhereClause creates a fast evaluator that works directly on row slices
+// This avoids allocating a map[string]string for every row
+func compileWhereClause(expr sqlparser.Expression, header []string, normalizedHeaders map[string]int) func([]string) bool {
+	return func(row []string) bool {
+		return evaluateExpressionDirect(expr, row, normalizedHeaders)
+	}
+}
+
+// evaluateExpressionDirect evaluates expressions directly on row slices without map allocation
+func evaluateExpressionDirect(expr sqlparser.Expression, row []string, colIndices map[string]int) bool {
+	switch e := expr.(type) {
+	case *sqlparser.BinaryExpr:
+		switch e.Operator {
+		case "AND":
+			if !evaluateExpressionDirect(e.Left, row, colIndices) {
+				return false
+			}
+			return evaluateExpressionDirect(e.Right, row, colIndices)
+		case "OR":
+			if evaluateExpressionDirect(e.Left, row, colIndices) {
+				return true
+			}
+			return evaluateExpressionDirect(e.Right, row, colIndices)
+		}
+		return false
+
+	case sqlparser.BinaryExpr:
+		switch e.Operator {
+		case "AND":
+			if !evaluateExpressionDirect(e.Left, row, colIndices) {
+				return false
+			}
+			return evaluateExpressionDirect(e.Right, row, colIndices)
+		case "OR":
+			if evaluateExpressionDirect(e.Left, row, colIndices) {
+				return true
+			}
+			return evaluateExpressionDirect(e.Right, row, colIndices)
+		}
+		return false
+
+	case *sqlparser.UnaryExpr:
+		if e.Operator == "NOT" {
+			return !evaluateExpressionDirect(e.Expr, row, colIndices)
+		}
+		return false
+
+	case sqlparser.UnaryExpr:
+		if e.Operator == "NOT" {
+			return !evaluateExpressionDirect(e.Expr, row, colIndices)
+		}
+		return false
+
+	case *sqlparser.Comparison:
+		colIdx, ok := colIndices[strings.ToLower(e.Column)]
+		if !ok || colIdx >= len(row) {
+			return false
+		}
+		value := row[colIdx]
+
+		switch e.Operator {
+		case "=":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err == nil && num == e.NumericValue
+			}
+			return value == e.Value
+		case "!=", "<>":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err != nil || num != e.NumericValue
+			}
+			return value != e.Value
+		case ">":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err == nil && num > e.NumericValue
+			}
+			return value > e.Value
+		case ">=":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err == nil && num >= e.NumericValue
+			}
+			return value >= e.Value
+		case "<":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err == nil && num < e.NumericValue
+			}
+			return value < e.Value
+		case "<=":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err == nil && num <= e.NumericValue
+			}
+			return value <= e.Value
+		}
+		return false
+
+	case sqlparser.Comparison:
+		colIdx, ok := colIndices[strings.ToLower(e.Column)]
+		if !ok || colIdx >= len(row) {
+			return false
+		}
+		value := row[colIdx]
+
+		switch e.Operator {
+		case "=":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err == nil && num == e.NumericValue
+			}
+			return value == e.Value
+		case "!=", "<>":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err != nil || num != e.NumericValue
+			}
+			return value != e.Value
+		case ">":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err == nil && num > e.NumericValue
+			}
+			return value > e.Value
+		case ">=":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err == nil && num >= e.NumericValue
+			}
+			return value >= e.Value
+		case "<":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err == nil && num < e.NumericValue
+			}
+			return value < e.Value
+		case "<=":
+			if e.IsNumeric {
+				num, err := strconv.ParseFloat(value, 64)
+				return err == nil && num <= e.NumericValue
+			}
+			return value <= e.Value
+		}
+		return false
+
+	default:
+		return false
+	}
+}
+
 // sortKey represents a single sort value (string or numeric)
 type sortKey struct {
 	strValue      string
-	strValueLower string // Pre-lowercased for fast case-insensitive comparison
+	strValueLower string // Pre-lowercased for strings only (not for numeric)
 	numValue      float64
 	isNumeric     bool
 }
@@ -51,11 +212,14 @@ func executeOrderBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 		return err
 	}
 
-	// Validate WHERE clause columns if present
+	// Compile WHERE clause to avoid per-row map allocations
+	var whereEvaluator func([]string) bool
 	if query.Where != nil {
 		if err := validateWhereColumns(query.Where, normalizedHeaders); err != nil {
 			return err
 		}
+		// Pre-compile predicate with column indices
+		whereEvaluator = compileWhereClause(query.Where, header, normalizedHeaders)
 	}
 
 	// Quick Win #3: Use heap-based top-K when LIMIT is small (< 1000)
@@ -63,9 +227,11 @@ func executeOrderBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 		return executeOrderByTopK(query, reader, header, orderByIndices, selectedIdxs, outputHeader, normalizedHeaders, out)
 	}
 
-	// Quick Win #2: Type detection state for sampling
-	columnTypes := make([]bool, len(orderByIndices))
-	typesSampled := false
+	// 3-state type detection: unknown -> numeric/string (stop ParseFloat once decided)
+	columnTypes := make([]columnType, len(orderByIndices))
+	for i := range columnTypes {
+		columnTypes[i] = columnUnknown
+	}
 	sampleCount := 0
 	const sampleSize = 100
 
@@ -85,39 +251,36 @@ func executeOrderBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 		}
 		rowCount++
 
-		// Apply WHERE filter if present
-		if query.Where != nil {
-			rowMap := make(map[string]string)
-			for idx, val := range record {
-				if idx < len(header) {
-					rowMap[strings.ToLower(header[idx])] = val
-				}
-			}
-			if !sqlparser.EvaluateNormalized(query.Where, rowMap) {
-				continue
-			}
+		// Apply compiled WHERE filter (no map allocation)
+		if whereEvaluator != nil && !whereEvaluator(record) {
+			continue
 		}
 
 		// Copy the row since reader reuses the slice
 		rowCopy := make([]string, len(record))
 		copy(rowCopy, record)
 
-		// Sample first N rows to detect column types (Quick Win #2)
-		if !typesSampled && sampleCount < sampleSize {
+		// 3-state type detection: stop testing once column type is determined
+		if sampleCount < sampleSize {
 			for i, idx := range orderByIndices {
+				if columnTypes[i] != columnUnknown {
+					continue // Already determined
+				}
 				if idx < len(rowCopy) {
 					if _, err := strconv.ParseFloat(rowCopy[idx], 64); err == nil {
-						columnTypes[i] = true
+						if sampleCount >= 5 { // Need a few samples to be confident
+							columnTypes[i] = columnNumeric
+						}
+					} else {
+						// Found non-numeric value - column is string
+						columnTypes[i] = columnString
 					}
 				}
 			}
 			sampleCount++
-			if sampleCount >= sampleSize {
-				typesSampled = true
-			}
 		}
 
-		// Extract sort keys
+		// Extract sort keys using determined types
 		sortKeys := make([]sortKey, len(orderByIndices))
 		for i, idx := range orderByIndices {
 			if idx >= len(rowCopy) {
@@ -127,31 +290,44 @@ func executeOrderBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 
 			value := rowCopy[idx]
 
-			// Use type detection to skip ParseFloat for known string columns
-			if typesSampled && !columnTypes[i] {
-				// Known string column - skip ParseFloat (Quick Win #2)
+			// Use 3-state type detection
+			if columnTypes[i] == columnString {
+				// Known string column - skip ParseFloat entirely
 				sortKeys[i] = sortKey{
 					strValue:      value,
-					strValueLower: strings.ToLower(value), // Quick Win #1: pre-lowercase
+					strValueLower: strings.ToLower(value), // Only lowercase for strings
 					isNumeric:     false,
 				}
-			} else {
-				// Try to parse as number
+			} else if columnTypes[i] == columnNumeric {
+				// Known numeric column - skip ToLower entirely
 				if numVal, err := strconv.ParseFloat(value, 64); err == nil {
+					sortKeys[i] = sortKey{
+						strValue:  value,
+						numValue:  numVal,
+						isNumeric: true,
+						// No strValueLower for numeric columns
+					}
+				} else {
+					// Type changed to string
 					sortKeys[i] = sortKey{
 						strValue:      value,
 						strValueLower: strings.ToLower(value),
-						numValue:      numVal,
-						isNumeric:     true,
+						isNumeric:     false,
+					}
+				}
+			} else {
+				// Unknown - try to parse
+				if numVal, err := strconv.ParseFloat(value, 64); err == nil {
+					sortKeys[i] = sortKey{
+						strValue:  value,
+						numValue:  numVal,
+						isNumeric: true,
 					}
 				} else {
 					sortKeys[i] = sortKey{
 						strValue:      value,
 						strValueLower: strings.ToLower(value),
 						isNumeric:     false,
-					}
-					if !typesSampled {
-						columnTypes[i] = false
 					}
 				}
 			}

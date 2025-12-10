@@ -71,6 +71,12 @@ func (h *rowHeap) Pop() interface{} {
 func executeOrderByTopK(query sqlparser.Query, reader *csv.Reader, header []string, orderByIndices []int,
 	selectedIdxs []int, outputHeader []string, normalizedHeaders map[string]int, out io.Writer) error {
 
+	// Compile WHERE clause once
+	var whereEvaluator func([]string) bool
+	if query.Where != nil {
+		whereEvaluator = compileWhereClause(query.Where, header, normalizedHeaders)
+	}
+
 	// Initialize heap
 	h := &rowHeap{
 		rows:    make([]rowWithKey, 0, query.Limit),
@@ -78,9 +84,11 @@ func executeOrderByTopK(query sqlparser.Query, reader *csv.Reader, header []stri
 	}
 	heap.Init(h)
 
-	// Type detection state
-	columnTypes := make([]bool, len(orderByIndices))
-	typesSampled := false
+	// 3-state type detection
+	columnTypes := make([]columnType, len(orderByIndices))
+	for i := range columnTypes {
+		columnTypes[i] = columnUnknown
+	}
 	sampleCount := 0
 	const sampleSize = 100
 
@@ -98,36 +106,32 @@ func executeOrderByTopK(query sqlparser.Query, reader *csv.Reader, header []stri
 		}
 		rowCount++
 
-		// Apply WHERE filter if present
-		if query.Where != nil {
-			rowMap := make(map[string]string)
-			for idx, val := range record {
-				if idx < len(header) {
-					rowMap[strings.ToLower(header[idx])] = val
-				}
-			}
-			if !sqlparser.EvaluateNormalized(query.Where, rowMap) {
-				continue
-			}
+		// Apply compiled WHERE filter
+		if whereEvaluator != nil && !whereEvaluator(record) {
+			continue
 		}
 
 		// Copy the row
 		rowCopy := make([]string, len(record))
 		copy(rowCopy, record)
 
-		// Sample first N rows to detect column types
-		if !typesSampled && sampleCount < sampleSize {
+		// 3-state type detection with early termination
+		if sampleCount < sampleSize {
 			for i, idx := range orderByIndices {
+				if columnTypes[i] != columnUnknown {
+					continue
+				}
 				if idx < len(rowCopy) {
 					if _, err := strconv.ParseFloat(rowCopy[idx], 64); err == nil {
-						columnTypes[i] = true
+						if sampleCount >= 5 {
+							columnTypes[i] = columnNumeric
+						}
+					} else {
+						columnTypes[i] = columnString
 					}
 				}
 			}
 			sampleCount++
-			if sampleCount >= sampleSize {
-				typesSampled = true
-			}
 		}
 
 		// Extract sort keys
@@ -140,20 +144,21 @@ func executeOrderByTopK(query sqlparser.Query, reader *csv.Reader, header []stri
 
 			value := rowCopy[idx]
 
-			// Use type detection to skip ParseFloat for known string columns
-			if typesSampled && !columnTypes[i] {
+			// Use 3-state type detection
+			if columnTypes[i] == columnString {
+				// Known string - skip ParseFloat
 				sortKeys[i] = sortKey{
 					strValue:      value,
 					strValueLower: strings.ToLower(value),
 					isNumeric:     false,
 				}
-			} else {
+			} else if columnTypes[i] == columnNumeric {
+				// Known numeric - skip ToLower
 				if numVal, err := strconv.ParseFloat(value, 64); err == nil {
 					sortKeys[i] = sortKey{
-						strValue:      value,
-						strValueLower: strings.ToLower(value),
-						numValue:      numVal,
-						isNumeric:     true,
+						strValue:  value,
+						numValue:  numVal,
+						isNumeric: true,
 					}
 				} else {
 					sortKeys[i] = sortKey{
@@ -161,8 +166,20 @@ func executeOrderByTopK(query sqlparser.Query, reader *csv.Reader, header []stri
 						strValueLower: strings.ToLower(value),
 						isNumeric:     false,
 					}
-					if !typesSampled {
-						columnTypes[i] = false
+				}
+			} else {
+				// Unknown - try parse
+				if numVal, err := strconv.ParseFloat(value, 64); err == nil {
+					sortKeys[i] = sortKey{
+						strValue:  value,
+						numValue:  numVal,
+						isNumeric: true,
+					}
+				} else {
+					sortKeys[i] = sortKey{
+						strValue:      value,
+						strValueLower: strings.ToLower(value),
+						isNumeric:     false,
 					}
 				}
 			}
