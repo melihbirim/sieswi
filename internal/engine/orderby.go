@@ -21,9 +21,10 @@ type rowWithKey struct {
 
 // sortKey represents a single sort value (string or numeric)
 type sortKey struct {
-	strValue  string
-	numValue  float64
-	isNumeric bool
+	strValue      string
+	strValueLower string // Pre-lowercased for fast case-insensitive comparison
+	numValue      float64
+	isNumeric     bool
 }
 
 // executeOrderBy handles ORDER BY queries by loading all rows into memory and sorting
@@ -56,6 +57,17 @@ func executeOrderBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 			return err
 		}
 	}
+
+	// Quick Win #3: Use heap-based top-K when LIMIT is small (< 1000)
+	if query.Limit > 0 && query.Limit < 1000 {
+		return executeOrderByTopK(query, reader, header, orderByIndices, selectedIdxs, outputHeader, normalizedHeaders, out)
+	}
+
+	// Quick Win #2: Type detection state for sampling
+	columnTypes := make([]bool, len(orderByIndices))
+	typesSampled := false
+	sampleCount := 0
+	const sampleSize = 100
 
 	// Load all rows into memory
 	var rows []rowWithKey
@@ -90,27 +102,57 @@ func executeOrderBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 		rowCopy := make([]string, len(record))
 		copy(rowCopy, record)
 
+		// Sample first N rows to detect column types (Quick Win #2)
+		if !typesSampled && sampleCount < sampleSize {
+			for i, idx := range orderByIndices {
+				if idx < len(rowCopy) {
+					if _, err := strconv.ParseFloat(rowCopy[idx], 64); err == nil {
+						columnTypes[i] = true
+					}
+				}
+			}
+			sampleCount++
+			if sampleCount >= sampleSize {
+				typesSampled = true
+			}
+		}
+
 		// Extract sort keys
 		sortKeys := make([]sortKey, len(orderByIndices))
 		for i, idx := range orderByIndices {
 			if idx >= len(rowCopy) {
-				sortKeys[i] = sortKey{strValue: "", isNumeric: false}
+				sortKeys[i] = sortKey{strValue: "", strValueLower: "", isNumeric: false}
 				continue
 			}
 
 			value := rowCopy[idx]
 
-			// Try to parse as number
-			if numVal, err := strconv.ParseFloat(value, 64); err == nil {
+			// Use type detection to skip ParseFloat for known string columns
+			if typesSampled && !columnTypes[i] {
+				// Known string column - skip ParseFloat (Quick Win #2)
 				sortKeys[i] = sortKey{
-					strValue:  value,
-					numValue:  numVal,
-					isNumeric: true,
+					strValue:      value,
+					strValueLower: strings.ToLower(value), // Quick Win #1: pre-lowercase
+					isNumeric:     false,
 				}
 			} else {
-				sortKeys[i] = sortKey{
-					strValue:  value,
-					isNumeric: false,
+				// Try to parse as number
+				if numVal, err := strconv.ParseFloat(value, 64); err == nil {
+					sortKeys[i] = sortKey{
+						strValue:      value,
+						strValueLower: strings.ToLower(value),
+						numValue:      numVal,
+						isNumeric:     true,
+					}
+				} else {
+					sortKeys[i] = sortKey{
+						strValue:      value,
+						strValueLower: strings.ToLower(value),
+						isNumeric:     false,
+					}
+					if !typesSampled {
+						columnTypes[i] = false
+					}
 				}
 			}
 		}
@@ -138,11 +180,8 @@ func executeOrderBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 					cmp = 0
 				}
 			} else {
-				// String comparison (case-insensitive)
-				cmp = strings.Compare(
-					strings.ToLower(keyI.strValue),
-					strings.ToLower(keyJ.strValue),
-				)
+				// String comparison using pre-lowercased values (Quick Win #1)
+				cmp = strings.Compare(keyI.strValueLower, keyJ.strValueLower)
 			}
 
 			if cmp != 0 {
