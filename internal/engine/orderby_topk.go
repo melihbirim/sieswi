@@ -92,7 +92,8 @@ func executeOrderByTopK(query sqlparser.Query, reader *csv.Reader, header []stri
 	sampleCount := 0
 	const sampleSize = 100
 
-	reader.ReuseRecord = true
+	// Performance optimization: Disable record reuse for faster execution
+	reader.ReuseRecord = false
 	reader.FieldsPerRecord = -1
 
 	rowCount := 0
