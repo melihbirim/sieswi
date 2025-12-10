@@ -21,8 +21,8 @@ type rowWithKey struct {
 
 // sortKey represents a single sort value (string or numeric)
 type sortKey struct {
-	strValue string
-	numValue float64
+	strValue  string
+	numValue  float64
 	isNumeric bool
 }
 
@@ -99,7 +99,7 @@ func executeOrderBy(query sqlparser.Query, reader *csv.Reader, header []string, 
 			}
 
 			value := rowCopy[idx]
-			
+
 			// Try to parse as number
 			if numVal, err := strconv.ParseFloat(value, 64); err == nil {
 				sortKeys[i] = sortKey{

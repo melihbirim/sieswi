@@ -13,7 +13,7 @@ type Query struct {
 	AllColumns bool
 	FilePath   string
 	Where      Expression
-	GroupBy    []string // Columns to group by
+	GroupBy    []string        // Columns to group by
 	OrderBy    []OrderByColumn // Columns to sort by
 	Limit      int
 }
@@ -130,7 +130,7 @@ func Parse(input string) (Query, error) {
 			if cleaned == "" {
 				return Query{}, fmt.Errorf("empty column name in ORDER BY clause")
 			}
-			
+
 			// Check for DESC/ASC suffix
 			descending := false
 			parts := strings.Fields(cleaned)
@@ -148,7 +148,7 @@ func Parse(input string) (Query, error) {
 			} else if len(parts) > 2 {
 				return Query{}, fmt.Errorf("invalid ORDER BY column: %s", cleaned)
 			}
-			
+
 			q.OrderBy = append(q.OrderBy, OrderByColumn{
 				Column:     cleaned,
 				Descending: descending,
