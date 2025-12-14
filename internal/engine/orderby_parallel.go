@@ -18,7 +18,7 @@ func parallelSort(rows []rowWithKey, orderBy []sqlparser.OrderByColumn, numWorke
 
 	// Calculate chunk size (roughly equal division)
 	chunkSize := (len(rows) + numWorkers - 1) / numWorkers
-	
+
 	// Sort each chunk in parallel
 	var wg sync.WaitGroup
 	for i := 0; i < numWorkers; i++ {
